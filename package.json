@@ -1,0 +1,39 @@
+{
+  "name": "jevzf",
+  "version": "0.1.0",
+  "description": "Meaning-ranked piped text for stock fzf, powered by TypeSafe Jev",
+  "type": "module",
+  "bin": {
+    "jevzf": "bin/jevzf.mjs"
+  },
+  "files": [
+    "bin/",
+    "lib/",
+    "NOTICE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test",
+    "lint": "node --check bin/jevzf.mjs && find lib test -name '*.mjs' -exec node --check {} \\;"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zachlandes/jevzf.git"
+  },
+  "bugs": {
+    "url": "https://github.com/zachlandes/jevzf/issues"
+  },
+  "homepage": "https://github.com/zachlandes/jevzf#readme",
+  "keywords": [
+    "fzf",
+    "semantic-search",
+    "jev",
+    "cli"
+  ],
+  "dependencies": {
+    "@typesafe-ai/sdk": "0.6.0"
+  }
+}

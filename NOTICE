@@ -1,0 +1,16 @@
+jevzf
+Copyright 2026 Zachary Landes
+Licensed under the Apache License, Version 2.0.
+
+Meaning-search request construction, batching, redaction, spend budgeting,
+and the Jev client are adapted from zachlandes/herdr-find, commit 4736dd5
+(Apache-2.0), originally developed in Dewey.
+Modified for general line input, explicit key-file configuration, durable
+spend reservations, result caching and independent CLI use.
+
+Meaning-search questions derive from Needle by Shubham Saboo,
+awesome-llm-apps (Apache-2.0), via Dewey and herdr-find.
+The inherited 0.58 match threshold also comes from Needle.
+https://github.com/Shubhamsaboo/awesome-llm-apps/tree/main/advanced_llm_apps/needle
+
+This project is unofficial and is not affiliated with TypeSafe.
