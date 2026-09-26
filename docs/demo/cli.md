@@ -61,7 +61,7 @@ node stand-in.mjs 'printf "%s\n" "retry: deploy with gh""p_Zq8Rk2Lm4Nx7Vb1Cd5Fg9
 --- sent:
 ./src/checkout/Step3ShippingAddress/Step3ShippingAddress.tsx
 9f3c2a1e4b7d retry backoff
-retry curl -H "Authorization: [redacted]
+retry curl -H "Authorization: [redacted]"
 retry password=[redacted]
 retry: deploy with [github token]
 retry: ping [email]
