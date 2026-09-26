@@ -110,8 +110,8 @@ TypeSafe counts rate limits per account, not per key.
 A second key on the same account adds no capacity: measured on one account, small requests got about 47,000-56,000 tokens a second on one key and 46,000 combined on two, and large ones about 121,000 on one and 127,000 split across two.
 A key per tool is for separate spend records and revocation, not for throughput.
 
-A key does not reveal its account, so the gate assumes every key on this machine belongs to one account.
-Every key shares that account's one rate window, one 429 pause and one set of in-flight requests, across every tool and process on the machine.
+A key does not reveal its account, so the gate assumes every TypeSafe key on this machine belongs to one account.
+Every TypeSafe key shares that account's one rate window, one 429 pause and one set of in-flight requests, across every tool and process on the machine.
 
 `limits` describes the account's ceiling:
 
