@@ -341,7 +341,7 @@ test("the gate sets the pinned wire model and refuses any other", async (t) => {
   const { model, ...unpinned } = request("public");
   assert.equal((await run.ask(unpinned)).answers.q.noul, 0.9);
   assert.equal(f.sent[0].model, model);
-  await assert.rejects(run.ask({ ...unpinned, model: "jev-0.0.1" }), /not pinned/);
+  await assert.rejects(run.ask({ ...unpinned, model: "jev-0.0.1" }), /model must be omitted or jev-1.13.0/);
   await run.close();
   assert.equal(f.sent.length, 1);
 });

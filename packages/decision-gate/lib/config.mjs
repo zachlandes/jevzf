@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { ConfigError } from "./errors.mjs";
+import { DEFAULT_PROVIDER, providers } from "./providers/index.mjs";
 
 const NAME = "decision-gate";
 export const expandHome = (value) => value.startsWith("~/") ? path.join(os.homedir(), value.slice(2)) : value;
@@ -21,19 +22,29 @@ export function loadConfig(env = process.env) {
   }
   const object = (value) => value && typeof value === "object" && !Array.isArray(value);
   if (!object(user) || (user.spend !== undefined && !object(user.spend)) || (user.limits !== undefined && !object(user.limits))) throw new ConfigError("config, spend and limits must be objects");
+  // The provider is only ever chosen by name, never from whichever key variable happens to be set,
+  // since other tools export those keys for their own use
+  const provider = env.DECISION_GATE_PROVIDER ?? user.provider ?? DEFAULT_PROVIDER;
+  if (!Object.hasOwn(providers, provider)) throw new ConfigError(`provider must be one of ${Object.keys(providers).join(", ")}`);
+  const nested = Object.entries(user.limits ?? {}).filter(([, value]) => object(value));
+  if (nested.some(([name]) => !Object.hasOwn(providers, name))) throw new ConfigError("limits may nest only a known provider's own limits");
+  // A provider's own limits section wins over the shared one, which wins over the provider's defaults
+  const limits = { ...user.limits, ...user.limits?.[provider] };
+  const defaults = providers[provider].limits;
   const number = (name, fallback, label, positive = false) => amount(env[name] !== undefined ? (env[name].trim() ? Number(env[name]) : NaN) : fallback, label, { positive });
   const location = (value, fromEnv, label) => {
     if (value === null) return null;
     if (typeof value !== "string" || !value.trim()) throw new ConfigError(`${label} must be a path`);
     return path.resolve(fromEnv ? process.cwd() : path.dirname(file), expandHome(value));
   };
-  const share = amount(user.limits?.share ?? 0.8, "limits.share", { positive: true });
+  const share = amount(limits.share ?? 0.8, "limits.share", { positive: true });
   if (share > 1) throw new ConfigError("limits.share must not exceed 1");
   const whole = (value, label) => {
     if (!Number.isInteger(value)) throw new ConfigError(`${label} must be a positive whole number`);
     return value;
   };
   return {
+    provider,
     key_file: location(user.key_file ?? null, false, "key_file"),
     never_send_file: location(env.DECISION_GATE_NEVER_SEND_FILE || user.never_send_file || null, !!env.DECISION_GATE_NEVER_SEND_FILE, "never_send_file"),
     spend: {
@@ -41,12 +52,12 @@ export function loadConfig(env = process.env) {
       perDayUsd: number("DECISION_GATE_PER_DAY_USD", user.spend?.per_day_usd ?? 0.2, "daily ceiling")
     },
     limits: {
-      requestsPerMinute: number("DECISION_GATE_RPM", user.limits?.requests_per_minute ?? 1200, "requests per minute", true),
-      tokensPerSecond: number("DECISION_GATE_TPS", user.limits?.tokens_per_second ?? 250000, "tokens per second", true),
+      requestsPerMinute: number("DECISION_GATE_RPM", limits.requests_per_minute ?? defaults.requestsPerMinute, "requests per minute", true),
+      tokensPerSecond: number("DECISION_GATE_TPS", limits.tokens_per_second ?? defaults.tokensPerSecond, "tokens per second", true),
       share,
       // Measured on one account: requests of about 6,100 tokens finished fastest at two to four in
       // flight, while at about 50,000 tokens one at a time was as fast as two or four
-      inFlight: whole(number("DECISION_GATE_IN_FLIGHT", user.limits?.in_flight ?? 4, "limits.in_flight", true), "limits.in_flight"),
+      inFlight: whole(number("DECISION_GATE_IN_FLIGHT", limits.in_flight ?? defaults.inFlight, "limits.in_flight", true), "limits.in_flight"),
       largeInFlight: 1,
       largeRequestTokens: 32000
     },
