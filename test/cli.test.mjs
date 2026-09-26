@@ -523,22 +523,34 @@ test("credentials in real config formats lose their values while code references
 for (const [name, kind, terminated, prefix] of [
   ["a private key piped as lines spanning batches", "RSA PRIVATE KEY", true, () => ""],
   ["a private key cut off before its END line, as by head", "RSA PRIVATE KEY", false, () => ""],
-  ["a PGP private key block piped as lines", "PGP PRIVATE KEY BLOCK", true, () => ""],
+  ["a PGP private key block with armour headers and a blank line", "PGP PRIVATE KEY BLOCK", true, () => ""],
   ["a private key in rg -n output", "RSA PRIVATE KEY", true, (i) => `keys/id_rsa:${i + 1}:`],
-  ["a cut-off private key in rg -n output", "OPENSSH PRIVATE KEY", false, (i) => `keys/id_ed25519:${i + 1}:`]
+  ["a private key in rg -n output under a path with spaces", "RSA PRIVATE KEY", true, (i) => `Google Drive/keys/server.pem:${i + 1}:`],
+  ["a private key in rg -C context lines", "RSA PRIVATE KEY", true, (i) => i === 0 ? "keys/a.pem:1:" : `keys/a.pem-${i + 1}-`],
+  ["a cut-off private key in rg -n output", "OPENSSH PRIVATE KEY", false, (i) => `keys/id_ed25519:${i + 1}:`],
+  ["a private key added in git diff output", "RSA PRIVATE KEY", true, () => "+"],
+  ["a private key in cat -n output", "EC PRIVATE KEY", true, (i) => `${String(i + 1).padStart(6)}\t`],
+  ["a PGP key block in rg -n output with a blank armour line", "PGP PRIVATE KEY BLOCK", true, (i) => `keys/sub.asc:${i + 1}:`]
 ]) {
-  test(`${name} sends none of its body lines and nothing after it`, async (t) => {
+  test(`${name} sends none of its key text, keeps each prefix and leaves later lines alone`, async (t) => {
     const f = await fixture(t);
     const body = Array.from({ length: 30 }, (_, i) => `${String.fromCharCode(65 + (i % 26))}${"MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC".slice(0, 40)}${i}`);
-    const block = [`-----BEGIN ${kind}-----`, ...body, ...(terminated ? [`-----END ${kind}-----`] : [])].map((line, i) => prefix(i) + line);
+    const pgp = kind.startsWith("PGP");
+    const key = [
+      `-----BEGIN ${kind}-----`,
+      ...(pgp ? ["Version: GnuPG v2", ""] : []),
+      ...body,
+      ...(terminated ? ["AQAB==", ...(pgp ? ["=Xk2a"] : []), `-----END ${kind}-----`] : [])
+    ];
+    const block = key.map((line, i) => prefix(i) + line);
     const filler = Array.from({ length: 20 }, (_, i) => `login ${i}`);
     const result = await f.run([...filler.slice(0, 10), ...block, ...filler.slice(10)].join("\n"));
     assert.equal(result.code, 0);
     assert.ok(f.requests.length > 2);
-    const sent = sentItems(f.requests);
-    assert.equal(sent.filter((item) => item === "[private key]").length, block.length);
-    assert.deepEqual(sent.filter((item) => item.startsWith("login")).sort(), [...filler].sort());
-    for (const line of block) assert.ok(f.requests.every((request) => !request.body.includes(line)));
+    const expected = key.flatMap((line, i) => line ? [prefix(i) + "[private key]"] : prefix(i).trim() ? [prefix(i)] : []);
+    assert.deepEqual(sentItems(f.requests).filter((item) => !item.startsWith("login")).sort(), expected.sort());
+    assert.deepEqual(sentItems(f.requests).filter((item) => item.startsWith("login")).sort(), [...filler].sort());
+    for (const line of key.filter((line) => line.length > 8)) assert.ok(f.requests.every((request) => !request.body.includes(line)), line);
   });
 }
 

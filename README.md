@@ -131,7 +131,7 @@ Built-in secret patterns and the configured rules redact the query, each line an
 A forbidden-pattern check over decoded strings and the serialized body refuses the whole search before any request if a listed forbidden value survives.
 The built-in filter recognises known formats only:
 
-- PEM and PGP private-key blocks, including every line of a block piped in as separate lines, with or without `rg -n` prefixes; a block starts at a marker standing alone on its line and runs to its END marker, or to the first line that is not key body when the key was cut off
+- PEM and PGP private-key blocks, including every line of a block piped in as separate lines; each line is judged by the key text at its end, so `rg -n` or `rg -C` paths (spaces included), `git diff` markers and `cat -n` numbers are kept and the key text is redacted; a block starts at a line ending with the BEGIN marker, unless a quote or other code delimiter comes just before it, and runs to a line ending with the END marker, or to the first line that is not key body when the key was cut off
 - JWTs
 - Prefixed API keys: OpenAI and Anthropic `sk-proj-`, `sk-svcacct-`, `sk-admin-`, `sk-None-` and `sk-ant-`, and any other `sk-` key of 20 or more characters with a capital letter and a digit, Stripe `sk_live_`/`sk_test_`, GitHub `ghp_`/`gho_`/`ghs_`/`ghu_`/`ghr_`/`github_pat_`, GitLab `glpat-`, npm `npm_`, Slack `xoxb-`/`xoxp-`/`xoxa-` and similar, AWS `AKIA`/`ASIA`, Google `AIza`
 - `Bearer` tokens and `Authorization` header values
