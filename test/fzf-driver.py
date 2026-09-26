@@ -17,7 +17,7 @@ if pid == 0:
     os.execvp("sh", ["sh", "-c", '''
 SRC='cat "$JEVZF_INPUT"'
 eval "$SRC" | fzf --query="$SEARCH_QUERY" \
-    --bind "ctrl-space:reload($SRC | jevzf --closest 3 {q})+disable-search+change-prompt(meaning> )" \
+    --bind "ctrl-space:reload($SRC | jevzf --closest 3 -- {q})+disable-search+change-prompt(meaning> )" \
     --bind "ctrl-f:reload($SRC)+enable-search+change-prompt(> )" \
     --bind 'load:execute-silent(touch "$READY")' > "$RESULT"
 '''])

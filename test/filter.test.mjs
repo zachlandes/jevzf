@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { PINNED_MODEL } from "../lib/meaning/jev.mjs";
 
 const cli = fileURLToPath(new URL("../bin/jevzf.mjs", import.meta.url));
-async function fixture(t) {
+async function fixture(t, reject) {
   const dir = mkdtempSync(path.join(tmpdir(), "jevzf-filter-"));
   const requests = [];
   const server = createServer(async (req, res) => {
@@ -17,6 +17,7 @@ async function fixture(t) {
     for await (const chunk of req) body += chunk;
     const request = JSON.parse(body);
     requests.push(request);
+    if (reject) { res.writeHead(reject); res.end("{}"); return; }
     res.setHeader("content-type", "application/json");
     res.end(JSON.stringify({ model: PINNED_MODEL, answers: Object.fromEntries(Object.entries(request.state.items).map(([id, text]) => [id, { type: "noul", noul: text.includes("login") ? 0.95 : text.includes("reset") ? 0.8 : 0.1 }])), usage: { input_tokens: 100 } }));
   });
@@ -185,4 +186,14 @@ test("Ctrl-C, an fzf reload's SIGTERM, SIGHUP and kill -9 mid-request never bloc
     assert.equal(next.code, 0, signal);
     assert.ok(next.elapsed < 3000, `${signal}: ${next.elapsed} ms`);
   }
+});
+
+test("a rejected key stops the search after the requests already in flight", async (t) => {
+  const f = await fixture(t, 401);
+  const input = Array.from({ length: 2000 }, (_, i) => `commit ${i} fixes a retry bug`).join("\n");
+  const result = await f.run(input, ["retry"]);
+  assert.equal(result.code, 2);
+  assert.equal(result.stdout.length, 0);
+  assert.match(result.stderr, /HTTP 401/);
+  assert.ok(f.requests.length <= 8, `sent ${f.requests.length} of 125 batches`);
 });

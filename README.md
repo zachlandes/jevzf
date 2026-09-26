@@ -44,7 +44,7 @@ Ctrl-Space searches by meaning for what you have typed; Ctrl-F goes back to fzf'
 ```sh
 SRC='git log --oneline'
 eval "$SRC" | fzf \
-    --bind "ctrl-space:reload($SRC | jevzf --closest 3 {q})+disable-search+change-prompt(meaning> )" \
+    --bind "ctrl-space:reload($SRC | jevzf --closest 3 -- {q})+disable-search+change-prompt(meaning> )" \
     --bind "ctrl-f:reload($SRC)+enable-search+change-prompt(> )"
 ```
 
