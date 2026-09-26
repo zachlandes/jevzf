@@ -55,7 +55,7 @@ const destination = (fixed) => (env = process.env) => {
 
 // The request and response shapes are TypeSafe's own, so any provider serving that API at a fixed
 // endpoint shares this responder; the gate, not the caller, names the model on the wire
-const createResponder = ({ label, baseURL, wireModel, maxRetries: providerRetries, pauseFallbackMs }) => function respond({ key, budget, assertSafe, limiter, book = async () => {}, fetchImpl = globalThis.fetch, endpoint, timeoutMs = 30000, maxRetries = providerRetries }) {
+const createResponder = ({ label, wireModel, maxRetries: providerRetries, pauseFallbackMs }) => function respond({ key, budget, assertSafe, limiter, book = async () => {}, fetchImpl = globalThis.fetch, endpoint, timeoutMs = 30000, maxRetries = providerRetries }) {
   if (!key?.authorization || !budget || !assertSafe || !endpoint) throw new TypeError("key, spend budget, never-send check and endpoint are required");
   return async (request, { signal } = {}) => {
     if (![undefined, PINNED_MODEL].includes(request.model)) throw new ServiceError(`request model must be omitted or ${PINNED_MODEL}`);
@@ -72,7 +72,7 @@ const createResponder = ({ label, baseURL, wireModel, maxRetries: providerRetrie
     let first, slot, sent = false;
     const client = new TypeSafeClient({
       apiKey: key.authorization.slice("Bearer ".length),
-      baseURL: endpoint.startsWith(`${baseURL}/`) ? baseURL : new URL(endpoint).origin,
+      baseURL: new URL(endpoint).origin,
       defaultModel: wireModel,
       // Explicit settings prevent SDK environment defaults from leaking data or keys
       logLevel: "off",
@@ -166,13 +166,13 @@ const createResponder = ({ label, baseURL, wireModel, maxRetries: providerRetrie
 
 // A provider serving TypeSafe's API: its key variable, one hard-coded destination, the model id it
 // sends and expects back, its price, and limiter defaults for an account there
-export function systemOneProvider({ name, label, keyEnv, endpoint, baseURL, wireModel, pinned, price, limits, maxRetries = 2, pauseFallbackMs = 1000 }) {
+export function systemOneProvider({ name, label, keyEnv, endpoint, wireModel, pinned, price, limits, maxRetries = 2, pauseFallbackMs = 1000 }) {
   return Object.freeze({
     name, label, keyEnv, model: wireModel, pinned, price,
     limits: Object.freeze(limits),
     endpoint: destination(endpoint),
     checkSize,
-    respond: createResponder({ label, baseURL, wireModel, maxRetries, pauseFallbackMs })
+    respond: createResponder({ label, wireModel, maxRetries, pauseFallbackMs })
   });
 }
 
@@ -181,7 +181,6 @@ export const typesafe = systemOneProvider({
   label: "TypeSafe",
   keyEnv: "TYPESAFE_API_KEY",
   endpoint: JEV_ENDPOINT,
-  baseURL: "https://api.typesafe.ai",
   wireModel: PINNED_MODEL,
   pinned: true,
   price: JEV_PRICE,

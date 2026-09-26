@@ -9,7 +9,6 @@ export const vercelAiGateway = systemOneProvider({
   keyEnv: "AI_GATEWAY_API_KEY",
   // The gateway's TypeSafe-compatible endpoint, which takes TypeSafe's request and response shapes
   endpoint: "https://ai-gateway.vercel.sh/typesafe/v1/systemone",
-  baseURL: "https://ai-gateway.vercel.sh/typesafe",
   wireModel: GATEWAY_MODEL,
   pinned: false,
   // The gateway charges the provider's list price with no markup
