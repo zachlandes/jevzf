@@ -1,5 +1,7 @@
 # First-release checks
 
+An executable [showboat](https://github.com/simonw/showboat) demo of the filter, [demo/cli.md](demo/cli.md), shows the first run, the secret filter, the per-line cache, interrupts and spend ceilings against a loopback stand-in; `cd docs/demo && showboat verify cli.md` re-runs every block and checks its output.
+
 ## No-key first run
 
 Install the packed release into a throwaway prefix, not the user's global installation.
@@ -27,7 +29,7 @@ jevzf: meaning search needs a TypeSafe API key; nothing was sent.
 The same input with `--estimate` needs no key, sends nothing and exits 0:
 
 ```text
-2 lines · about USD 0.000018 · never more than USD 0.02 per search · USD 0.20 per day · 0 lines changed by the never-send check
+2 lines · 0 cached · about USD 0.000018 · never more than USD 0.02 per search · USD 0.20 per day · 0 lines changed by the never-send check
 ```
 
 ## Offline behavior and stock fzf

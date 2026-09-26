@@ -4,6 +4,7 @@ import { openJev, searchByMeaning, estimateSearch, describeError } from "../lib/
 import { usd, count, shellQuote } from "../lib/format.mjs";
 import { splitRecords } from "../lib/records.mjs";
 import { runPicker, PickerError } from "../lib/picker/run.mjs";
+import { MAX_INPUT_TOKENS, usdFor } from "../lib/meaning/jev.mjs";
 
 class UsageError extends Error {}
 const HELP = `Usage: cmd | jevzf [options]           pick in fzf, with a meaning mode
@@ -35,11 +36,22 @@ Built-in known secret formats are always filtered; a never-send file is optional
 process.stdout.on("error", (error) => process.exit(error.code === "EPIPE" ? 0 : 2));
 const notice = (message) => process.stderr.write(`jevzf: ${message}\n`);
 const controller = new AbortController();
-const interruptible = () => process.once("SIGINT", () => {
-  controller.abort(new Error("interrupted"));
-  // Handling SIGINT replaces the default exit, so an idle stdin read must be ended explicitly
-  process.stdin.destroy();
-});
+// fzf ends a superseded reload with SIGTERM and a closed terminal sends SIGHUP; like Ctrl-C, both
+// abort in-flight requests so the run can close its spend hold before exiting
+const SIGNAL_EXIT = { SIGINT: 130, SIGTERM: 143, SIGHUP: 129 };
+let interruptedBy;
+// Only the filter handles these; the picker forwards them to fzf, which owns the terminal
+const interruptible = () => {
+  for (const signal of Object.keys(SIGNAL_EXIT)) {
+    process.once(signal, () => {
+      interruptedBy ??= signal;
+      controller.abort(new Error("interrupted"));
+      // Handling the signal replaces the default exit, so an idle stdin read must be ended explicitly
+      process.stdin.destroy();
+    });
+  }
+};
+const lines = (value) => `${count(value)} ${value === 1 ? "line" : "lines"}`;
 
 function parse(args) {
   const options = { floor: 0.58, closest: 0 };
@@ -98,27 +110,31 @@ async function main() {
   const delimiter = opts.read0 ? 0 : 10;
   if (!opts.read0 && input.includes(0)) throw new UsageError("NUL input needs --read0");
   const records = splitRecords(input, delimiter);
-  const search = { jev, items: records, query: opts.query, capUsd: opts["max-cost"] };
+  const search = { jev, items: records, query: opts.query, capUsd: opts["max-cost"], noCache: opts["no-cache"] };
   const estimate = estimateSearch(search);
   if (opts.estimate) {
-    process.stdout.write(`${count(estimate.lines)} lines · about ${usd(estimate.estimatedUsd, 2)} · never more than ${usd(estimate.perSearchUsd)} per search · ${usd(estimate.perDayUsd)} per day · ${count(estimate.changed)} lines changed by the never-send check\n`);
+    process.stdout.write(`${lines(estimate.lines)} · ${count(estimate.cachedLines)} cached · about ${usd(estimate.estimatedUsd, 2)} · never more than ${usd(estimate.perSearchUsd)} per search · ${usd(estimate.perDayUsd)} per day · ${lines(estimate.changed)} changed by the never-send check\n`);
     return;
   }
-  if (process.stderr.isTTY) notice(`about ${usd(estimate.estimatedUsd, 2)} · never more than ${usd(estimate.perSearchUsd)} per search · ${usd(await jev.remaining())} left today`);
+  const remaining = await jev.remaining();
+  if (process.stderr.isTTY) notice(`about ${usd(estimate.estimatedUsd, 2)} · never more than ${usd(estimate.perSearchUsd)} per search · ${usd(remaining)} left today`);
+  // Every request first reserves its worst case, so the last one needs a full reservation of room.
+  // Said whether or not stderr is a terminal, since it explains output that would otherwise look short
+  if (estimate.cachedLines < estimate.lines && estimate.estimatedUsd + usdFor(MAX_INPUT_TOKENS) > Math.min(estimate.perSearchUsd, remaining)) notice(`this search may need more than ${remaining < estimate.perSearchUsd ? `the ${usd(remaining)} left today` : `its ${usd(estimate.perSearchUsd)} ceiling`}; lines past it go unjudged, in input order`);
   const start = performance.now();
-  const result = await searchByMeaning({ ...search, floor: opts.floor, closest: opts.closest, noCache: opts["no-cache"], signal: controller.signal });
+  const result = await searchByMeaning({ ...search, floor: opts.floor, closest: opts.closest, signal: controller.signal });
   for (const [index, match] of result.matches.entries()) {
     if (opts.scores) process.stdout.write(`${match.p.toFixed(2)}\t`);
     process.stdout.write(match.item.bytes);
     // A moved unterminated record still needs a separator before the next record
     if (match.item.terminated || index < result.matches.length - 1) process.stdout.write(Buffer.from([delimiter]));
   }
-  if (process.stderr.isTTY) notice(`${count(result.matches.length)} found in ${count(estimate.lines)} lines · ${((performance.now() - start) / 1000).toFixed(1)} s · ${usd(result.spend)}`);
+  if (process.stderr.isTTY) notice(`${count(result.matches.length)} found in ${lines(estimate.lines)} · ${((performance.now() - start) / 1000).toFixed(1)} s · ${usd(result.spend)}`);
   if (!result.matches.length) process.exitCode = 1;
 }
 
 main().catch((error) => {
-  if (controller.signal.aborted) { process.exitCode = 130; return; }
+  if (controller.signal.aborted) { process.exitCode = SIGNAL_EXIT[interruptedBy]; return; }
   notice(error instanceof UsageError || error instanceof PickerError ? error.message : describeError(error));
   process.exitCode = 2;
 });
