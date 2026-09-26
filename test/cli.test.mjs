@@ -107,8 +107,8 @@ test("daily cap persists across processes while cached results remain free", asy
   writeFileSync(f.config, JSON.stringify({ spend: { per_day_usd: reservation + usdFor(100) / 2 } }));
   assert.equal((await f.run("login\n")).code, 0);
   const capped = await f.run("login\n", "different query");
-  assert.equal(capped.code, 1);
-  assert.match(capped.stderr, /ceiling reached; 1 lines unjudged/);
+  assert.equal(capped.code, 2);
+  assert.match(capped.stderr, /today's spend ceiling cannot cover one request, which reserves USD 0\.0028; nothing was sent/);
   assert.equal((await f.run("login\n")).code, 0);
   assert.equal(f.requests.length, 1);
 });
@@ -117,7 +117,7 @@ test("simultaneous CLI processes cannot allocate the same daily allowance", asyn
   const f = await fixture(t, async () => { await new Promise((resolve) => setTimeout(resolve, 150)); });
   writeFileSync(f.config, JSON.stringify({ spend: { per_day_usd: reservation, per_search_usd: reservation } }));
   const results = await Promise.all([f.run("login\n", "query one"), f.run("login\n", "query two")]);
-  assert.deepEqual(results.map((r) => r.code).sort(), [0, 1]);
+  assert.deepEqual(results.map((r) => r.code).sort(), [0, 2]);
   assert.equal(f.requests.length, 1);
 });
 
@@ -129,7 +129,7 @@ test("uncertain failures consume their reservation and retries cannot exceed the
   assert.equal(f.requests.length, 1);
   assert.ok(!result.stderr.includes("private provider error"));
   assert.equal(f.ledger().at(-1).usd, reservation);
-  assert.equal((await f.run("login\n")).code, 1);
+  assert.equal((await f.run("login\n")).code, 2);
   assert.equal(f.requests.length, 1);
 });
 
@@ -145,7 +145,7 @@ test("a process killed after sending leaves its reservation and does not retain 
   child.kill("SIGKILL");
   await closed;
   assert.equal(f.ledger().at(-1).usd, reservation);
-  assert.equal((await f.run("login\n")).code, 1);
+  assert.equal((await f.run("login\n")).code, 2);
   assert.equal(f.requests.length, 1);
 });
 
@@ -171,7 +171,9 @@ test("zero caps permit cached results but no paid request; malformed env amounts
   const f = await fixture(t);
   assert.equal((await f.run("login\n")).code, 0);
   assert.equal((await f.run("login\n", "authentication", { JEVZF_PER_SEARCH_USD: "0" })).code, 0);
-  assert.equal((await f.run("login\n", "different", { JEVZF_PER_SEARCH_USD: "0" })).code, 1);
+  const refused = await f.run("login\n", "different", { JEVZF_PER_SEARCH_USD: "0" });
+  assert.equal(refused.code, 2);
+  assert.match(refused.stderr, /this search's spend ceiling cannot cover one request/);
   assert.equal((await f.run("login\n", "query", { JEVZF_PER_DAY_USD: "not-a-number" })).code, 2);
   assert.equal(f.requests.length, 1);
 });
@@ -522,4 +524,19 @@ test("a private-key marker held in a string constant does not blank the lines af
     "src/login.ts:1:export function signIn(user) {",
     "src/login.ts:2:  return login(user);"
   ].sort());
+});
+
+test("a large input that hits today's ceiling mid-search prints what it found and names the ceiling", async (t) => {
+  const f = await fixture(t);
+  // Room for the first few requests only, as when earlier searches spent most of today's allowance
+  writeFileSync(f.config, JSON.stringify({ spend: { per_day_usd: reservation + 3 * usdFor(100) } }));
+  const lines = Array.from({ length: 200 }, (_, i) => i % 20 === 0 ? `login ${i}` : `garden ${i}`);
+  const result = await f.run(`${lines.join("\n")}\n`);
+  assert.equal(result.code, 0);
+  const judged = f.requests.flatMap((request) => Object.values(request.parsed.state.items));
+  assert.ok(f.requests.length >= 3 && f.requests.length < 13, `${f.requests.length} requests`);
+  assert.deepEqual(result.stdout.trim().split("\n"), lines.filter((line) => line.startsWith("login") && judged.includes(line)));
+  assert.match(result.stderr, /this search may need more than the USD [0-9.]+ left today; lines past it go unjudged, in input order/);
+  assert.match(result.stderr, new RegExp(`stopped at today's spend ceiling; ${200 - judged.length} lines unjudged \\(input order\\)`));
+  assert.ok(f.ledger().at(-1).closed);
 });

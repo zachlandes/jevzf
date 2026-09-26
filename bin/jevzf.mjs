@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
 import { openJev, searchByMeaning, estimateSearch, describeError } from "../lib/core.mjs";
+import { MAX_INPUT_TOKENS, usdFor } from "../lib/meaning/jev.mjs";
 
 class UsageError extends Error {}
 const HELP = `Usage: cmd | jevzf [options] QUERY...
@@ -109,7 +110,11 @@ async function main() {
     process.stdout.write(`${count(estimate.lines)} lines · about ${usd(estimate.estimatedUsd, 2)} · never more than ${usd(estimate.perSearchUsd)} per search · ${usd(estimate.perDayUsd)} per day · ${count(estimate.changed)} lines changed by the never-send check\n`);
     return;
   }
-  if (process.stderr.isTTY) notice(`about ${usd(estimate.estimatedUsd, 2)} · never more than ${usd(estimate.perSearchUsd)} per search · ${usd(await jev.remaining())} left today`);
+  const remaining = await jev.remaining();
+  if (process.stderr.isTTY) notice(`about ${usd(estimate.estimatedUsd, 2)} · never more than ${usd(estimate.perSearchUsd)} per search · ${usd(remaining)} left today`);
+  // Every request first reserves its worst case, so the last one needs a full reservation of room.
+  // Said whether or not stderr is a terminal, since it explains output that would otherwise look short
+  if (estimate.estimatedUsd + usdFor(MAX_INPUT_TOKENS) > Math.min(estimate.perSearchUsd, remaining)) notice(`this search may need more than ${remaining < estimate.perSearchUsd ? `the ${usd(remaining)} left today` : `its ${usd(estimate.perSearchUsd)} ceiling`}; lines past it go unjudged, in input order`);
   const start = performance.now();
   const result = await searchByMeaning({ ...search, floor: opts.floor, closest: opts.closest, noCache: opts["no-cache"], signal: controller.signal });
   for (const [index, match] of result.matches.entries()) {

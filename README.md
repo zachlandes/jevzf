@@ -68,8 +68,9 @@ cmd | jevzf [options] QUERY...
 - `--help` and `--version` need no key.
 - `--` ends the options, for a query that begins with a dash.
 
-Exit codes follow grep and fzf: 0 at least one match, 1 nothing matched, 2 an error such as a bad flag, no key or every request failing, and 130 interrupted.
-A search stopped by its ceiling still exits 0 or 1 by what it found, and says so on stderr.
+Exit codes follow grep and fzf: 0 at least one match, 1 nothing matched, 2 an error such as a bad flag, no key or every request failing, and 130 on Ctrl-C (143 on SIGTERM, 129 on SIGHUP).
+A search stopped part-way by a ceiling prints what it found in the lines it judged and exits 0 or 1 by that, and stderr names the ceiling and how many lines went unjudged.
+A search whose ceiling cannot cover even one request sends nothing and exits 2, rather than looking like a search that found nothing.
 
 Lines are judged in input order, so when a ceiling stops a search it is the last lines that go unjudged; pipe through `tac` to judge the newest first.
 ANSI colour codes are removed from what is sent and kept in what is printed.
@@ -94,7 +95,10 @@ An attempt that may have been billed without an answer stays booked at its reser
 The model is pinned to `jev-1.13.0`; [its price and limits](https://docs.typesafe.ai/models.md) were checked on 2026-09-25.
 
 The daily ceiling holds across processes: a search writes a hold for its ceiling before sending, so two searches at once cannot both spend the same allowance.
-Spend is tracked per key and per tool, and a hold from a crashed process is released after ten minutes while anything it may have spent stays counted.
+Before sending, stderr warns when a search may need more than its ceiling or what is left today, since each request first reserves its worst case.
+Spend is tracked per key and per tool.
+A search interrupted by Ctrl-C, ended by fzf's SIGTERM or cut off by a closed terminal closes its hold at what it may have spent; after kill -9 the hold is released after ten minutes, and anything it may have spent stays counted.
+None of these leaves a lock behind: local state is locked only for the moment of each file update, never across a request, and a lock whose owner process is gone is reclaimed by the next search.
 These are local ceilings, not account-wide billing controls.
 
 ## Rate limits
