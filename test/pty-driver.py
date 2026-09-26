@@ -1,6 +1,7 @@
 """Run a command in a real PTY and follow scripted steps, without a browser or API key.
 
-STEPS is JSON: [["wait", text], ["send", text], ["sleep", seconds], ...]. A wait looks for text in
+STEPS is JSON: [["wait", text], ["send", text], ["sleep", seconds], ["until", path], ...]. An until
+waits for a file to exist, such as one a stand-in server writes when a request arrives. A wait looks for text in
 everything drawn since the previous send, with ANSI sequences removed. Exits with the command's status; a wait that
 times out exits 90 and prints the screen text it saw.
 """
@@ -45,6 +46,14 @@ try:
     for kind, text in steps:
         if kind == "touch":
             open(os.path.join(os.environ["GATE_DIR"], text), "w").close()
+            continue
+        if kind == "until":
+            deadline = time.monotonic() + 15
+            while not os.path.exists(text):
+                if time.monotonic() > deadline:
+                    sys.stderr.write(f"{text} never appeared\n")
+                    sys.exit(90)
+                pump(0.02)
             continue
         if kind == "sleep":
             deadline = time.monotonic() + float(text)

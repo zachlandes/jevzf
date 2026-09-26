@@ -146,13 +146,15 @@ test("the picker refuses fzf older than 0.66 or missing, naming the fix", (t) =>
 let usableFzf = spawnSync("python3", ["--version"]).status === 0;
 try { findFzf(process.env); } catch { usableFzf = false; }
 
-async function standIn(t, { hold = false } = {}) {
+// With `arrived`, each request also creates that file, for a picker step to wait on
+async function standIn(t, { hold = false, arrived } = {}) {
   const requests = [];
   const server = createServer(async (req, res) => {
     let body = "";
     for await (const chunk of req) body += chunk;
     const request = JSON.parse(body);
     requests.push(request);
+    if (arrived) writeFileSync(arrived, "");
     // Never answers, so only the picker can end the search
     if (hold) return;
     res.setHeader("content-type", "application/json");
@@ -234,10 +236,11 @@ test("picker: without a key meaning mode explains itself and escape exits 130", 
 });
 
 test("picker: leaving meaning mode mid-search stops it and closes its spend hold", { skip: !usableFzf }, async (t) => {
-  const s = await standIn(t, { hold: true });
   const home = scratch(t);
+  const arrived = path.join(home, "arrived");
+  const s = await standIn(t, { hold: true, arrived });
   const env = { TYPESAFE_API_KEY: "fixture-only", DECISION_GATE_ENDPOINT: s.endpoint };
-  const result = await picker(t, { input: "retry\nbump\n", env, home, steps: [["wait", "fuzzy>"], ["send", `${ESC}m`], ["wait", "Type what you mean"], ["send", `why${ENTER}`], ["wait", "Searching for"], ["sleep", "1"], ["send", `${ESC}f`], ["wait", "alt-m searches by meaning"], ["send", ESC]] });
+  const result = await picker(t, { input: "retry\nbump\n", env, home, steps: [["wait", "fuzzy>"], ["send", `${ESC}m`], ["wait", "Type what you mean"], ["send", `why${ENTER}`], ["wait", "Searching for"], ["until", arrived], ["send", `${ESC}f`], ["wait", "alt-m searches by meaning"], ["send", ESC]] });
   assert.equal(result.code, 130, result.stderr);
   assert.equal(s.requests.length, 1);
   const spend = path.join(home, "decision-gate", "spend", "typesafe");

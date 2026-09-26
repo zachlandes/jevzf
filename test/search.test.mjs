@@ -158,7 +158,7 @@ test("searches queued behind the account's in-flight slot wait without spending 
     open++; peak = Math.max(peak, open);
     let body = "";
     for await (const chunk of req) body += chunk;
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    await new Promise((resolve) => setTimeout(resolve, 600));
     open--; served++;
     const { questions } = JSON.parse(body);
     res.setHeader("content-type", "application/json");
@@ -170,7 +170,7 @@ test("searches queued behind the account's in-flight slot wait without spending 
   writeFileSync(config, JSON.stringify({ limits: { in_flight: 1 } }));
   const env = { XDG_CONFIG_HOME: dir, XDG_STATE_HOME: dir, XDG_CACHE_HOME: dir, TYPESAFE_API_KEY: "fixture-only", DECISION_GATE_CONFIG: config, DECISION_GATE_ENDPOINT: `http://127.0.0.1:${server.address().port}/v1/systemone` };
   // Two searches at once put two workers on the account's one slot, each with two batches
-  const search = (name) => searchByMeaning({ jev: openJev({ env, maxRetries: 0, timeoutMs: 250 }), query: "search", items: Array.from({ length: 17 }, (_, i) => `${name} line ${i}`), noCache: true });
+  const search = (name) => searchByMeaning({ jev: openJev({ env, maxRetries: 0, timeoutMs: 1000 }), query: "search", items: Array.from({ length: 17 }, (_, i) => `${name} line ${i}`), noCache: true });
   const results = await Promise.all([search("first"), search("second")]);
   assert.equal(peak, 1);
   assert.equal(served, 4);
