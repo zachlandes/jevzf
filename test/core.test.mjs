@@ -123,7 +123,8 @@ test("ledger holds reserve capacity across callers, and a stale hold retains boo
 
 test("two tools on one key share its daily ceiling, and a tool's own ceiling only lowers it", async (t) => {
   const reserve = usdFor(MAX_INPUT_TOKENS);
-  const fetch = async (_url, init) => new Response(JSON.stringify({ model: PINNED_MODEL, answers: Object.fromEntries(Object.keys(JSON.parse(init.body).questions).map((id) => [id, { type: "noul", noul: 0.9 }])), usage: { input_tokens: 100 } }));
+  let sent = 0;
+  const fetch = async (_url, init) => { sent++; return new Response(JSON.stringify({ model: PINNED_MODEL, answers: Object.fromEntries(Object.keys(JSON.parse(init.body).questions).map((id) => [id, { type: "noul", noul: 0.9 }])), usage: { input_tokens: 100 } })); };
   const f = setup(t, { fetch });
   const env = { ...f.env, JEVZF_PER_DAY_USD: String(reserve + usdFor(100)) };
   const jevzf = openJev({ env, fetch, maxRetries: 0 });
@@ -137,13 +138,14 @@ test("two tools on one key share its daily ceiling, and a tool's own ceiling onl
   const second = herdr.run();
   await second.ask(request("public two"));
   await second.close();
+  assert.equal(sent, 2);
   near(await jevzf.remaining(), reserve - usdFor(100));
   const refused = jevzf.run();
   await assert.rejects(refused.ask(request("public three")), /spend cap reached/);
   await refused.close();
+  assert.equal(sent, 2);
   const lower = openJev({ env: f.env, fetch, maxRetries: 0, tool: "lower", spend: { perDayUsd: usdFor(100) / 2 } });
   near(await lower.remaining(), usdFor(100) / 2);
-  assert.equal(f.sent.length, 0);
 });
 
 test("a run can close its old-day ledger after midnight without spending on the new day", async (t) => {
