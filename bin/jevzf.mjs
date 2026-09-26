@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
-import { openJev, searchByMeaning, estimateSearch, describeError } from "../lib/core.mjs";
+import { openJev, searchByMeaning, estimateSearch, describeError, MAX_INPUT_BYTES } from "../lib/core.mjs";
 import { usd, count, shellQuote } from "../lib/format.mjs";
 import { splitRecords } from "../lib/records.mjs";
 import { runPicker, PickerError } from "../lib/picker/run.mjs";
@@ -102,7 +102,7 @@ async function main() {
   for await (const chunk of process.stdin) {
     controller.signal.throwIfAborted();
     bytes += chunk.length;
-    if (bytes > 10 * 1024 * 1024) throw new UsageError("input exceeds 10 MiB; narrow the input first");
+    if (bytes > MAX_INPUT_BYTES) throw new UsageError(`input exceeds ${MAX_INPUT_BYTES / 1024 ** 2} MiB; narrow the input first`);
     chunks.push(chunk);
   }
   controller.signal.throwIfAborted();
