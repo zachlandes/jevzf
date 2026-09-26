@@ -122,8 +122,8 @@ test("a cached repeat estimates nothing to send and does not warn about its ceil
   assert.equal(repeat.code, 0);
   assert.equal(repeat.stderr, "");
   assert.match((await f.run("login\nreset\n", "", {}, ["--estimate", "authentication"])).stdout, /^2 lines · 1 cached · about USD 0\.0000\d+ · /);
-  assert.match((await f.run("login\n", "", {}, ["--estimate", "authentication"])).stdout, /^1 lines · 1 cached · about USD 0\.00 · /);
-  assert.match((await f.run("login\n", "", {}, ["--estimate", "--no-cache", "authentication"])).stdout, /^1 lines · 0 cached · /);
+  assert.match((await f.run("login\n", "", {}, ["--estimate", "authentication"])).stdout, /^1 line · 1 cached · about USD 0\.00 · /);
+  assert.match((await f.run("login\n", "", {}, ["--estimate", "--no-cache", "authentication"])).stdout, /^1 line · 0 cached · /);
   assert.equal(f.requests.length, 1);
 });
 

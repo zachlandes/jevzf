@@ -1,5 +1,7 @@
 # First-release checks
 
+An executable [showboat](https://github.com/simonw/showboat) demo of the filter, [demo/cli.md](demo/cli.md), shows the first run, the secret filter, the per-line cache, interrupts and spend ceilings against a loopback stand-in; `cd docs/demo && showboat verify cli.md` re-runs every block and checks its output.
+
 ## No-key first run
 
 Install the packed release into a throwaway prefix, not the user's global installation.

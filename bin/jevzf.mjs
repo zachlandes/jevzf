@@ -47,6 +47,7 @@ const usd = (value, digits = 3) => {
   return `USD ${(text.split(".")[1]?.length ?? 0) >= 2 ? text : value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 const count = (value) => value.toLocaleString("en-US");
+const lines = (value) => `${count(value)} ${value === 1 ? "line" : "lines"}`;
 const shellQuote = (text) => `'${text.replaceAll("'", "'\\''")}'`;
 
 function parse(args) {
@@ -107,7 +108,7 @@ async function main() {
   const search = { jev, items: records, query: opts.query, capUsd: opts["max-cost"], noCache: opts["no-cache"] };
   const estimate = estimateSearch(search);
   if (opts.estimate) {
-    process.stdout.write(`${count(estimate.lines)} lines · ${count(estimate.cachedLines)} cached · about ${usd(estimate.estimatedUsd, 2)} · never more than ${usd(estimate.perSearchUsd)} per search · ${usd(estimate.perDayUsd)} per day · ${count(estimate.changed)} lines changed by the never-send check\n`);
+    process.stdout.write(`${lines(estimate.lines)} · ${count(estimate.cachedLines)} cached · about ${usd(estimate.estimatedUsd, 2)} · never more than ${usd(estimate.perSearchUsd)} per search · ${usd(estimate.perDayUsd)} per day · ${lines(estimate.changed)} changed by the never-send check\n`);
     return;
   }
   const remaining = await jev.remaining();
@@ -123,7 +124,7 @@ async function main() {
     // A moved unterminated record still needs a separator before the next record
     if (match.item.terminated || index < result.matches.length - 1) process.stdout.write(Buffer.from([delimiter]));
   }
-  if (process.stderr.isTTY) notice(`${count(result.matches.length)} found in ${count(estimate.lines)} lines · ${((performance.now() - start) / 1000).toFixed(1)} s · ${usd(result.spend)}`);
+  if (process.stderr.isTTY) notice(`${count(result.matches.length)} found in ${lines(estimate.lines)} · ${((performance.now() - start) / 1000).toFixed(1)} s · ${usd(result.spend)}`);
   if (!result.matches.length) process.exitCode = 1;
 }
 
