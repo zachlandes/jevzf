@@ -216,6 +216,14 @@ For local tests only, `JEVZF_JEV_ENDPOINT` may select an HTTP URL on numeric loo
 Never combine that test override with a real credential.
 CI runs on Node.js 20, 22 and 24.
 
+## Releasing
+
+Releases are cut by [release-please](https://github.com/googleapis/release-please) from [Conventional Commits](https://www.conventionalcommits.org/) on `main`.
+Pull request titles become the squash commit, so they must be Conventional Commits too (`feat: …`, `fix: …`).
+release-please keeps a standing release pull request that bumps `package.json` and writes `CHANGELOG.md`; never edit the changelog by hand.
+Merging that pull request tags the release, and the same workflow publishes it to npm with [trusted publishing](https://docs.npmjs.com/trusted-publishers) and provenance.
+No npm token is stored anywhere; npm trusts `.github/workflows/release-please.yml` in this repository, so renaming that file breaks publishing.
+
 See also: [jgrep](https://github.com/keltokhy/jgrep) for grep-style filtering by meaning without fzf.
 
 Apache-2.0; see [LICENSE](LICENSE) and [NOTICE](NOTICE).
