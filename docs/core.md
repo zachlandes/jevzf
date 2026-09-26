@@ -79,6 +79,7 @@ It stops the search only when nothing is left in flight, returning what was judg
 If the ceiling cannot cover even one request, so nothing was judged or sent, the search throws a `SpendCapError` instead.
 `run.summary().ceiling` is `"day"` when what is left of today bounds the run and `"search"` otherwise.
 Ordinary service failures return successful judgments when any exist, plus a failed-item count; if every request fails, the search throws.
+A rejected key (HTTP 401 or 403) stops the whole search at once and throws a `ServiceError`, even after earlier batches were judged.
 A failed privacy check stops before sending any batch.
 `estimateSearch({ jev, query, items, capUsd, noCache })` prepares the same requests but needs no key and sends nothing.
 It reports estimated USD for the lines not already in the answer cache, how many lines are cached, configured ceilings and how many lines the never-send rules change.
