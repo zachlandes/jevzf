@@ -559,7 +559,10 @@ for (const [name, open, close, prefix] of [
   ["a multi-line .env value in rg -n output", 'PRIVATE_KEY="', '"', (i) => `.env:${i + 4}:`],
   ["a Python triple-quoted string", 'SIGNING_KEY = """', '"""', () => ""],
   ["a JS template literal", "const key = `", "`", () => ""],
-  ["a Go raw string", "var testKey = `", "`", () => ""]
+  ["a Go raw string", "var testKey = `", "`", () => ""],
+  ["a JS template literal closed by a statement end", "const key = `", "`;", () => ""],
+  ["a Python triple-quoted call argument", 'key = load_pem_private_key(b"""', '""")', () => ""],
+  ["a Go test-table raw string", "{pem: `", "`,", () => ""]
 ]) {
   test(`a private key in ${name} sends none of its key text`, async (t) => {
     const f = await fixture(t);
