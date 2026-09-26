@@ -91,6 +91,63 @@ function redactPairs(text, counted) {
   return out + text.slice(last);
 }
 
+// An authorization or auth key, as a header, a JSON or YAML key, or a query or shell parameter.
+// Prose such as "work authorization: F-1 OPT" also has one, so its value decides
+const AUTH_KEY = /(?<![A-Za-z0-9])(?:proxy-)?auth(?:orization)?["'`]?\s*[:=]+\s*/gi;
+// HTTP authentication schemes, registered and common vendor ones, when a value follows
+const AUTH_SCHEME = /^(?:basic|bearer|token|digest|negotiate|ntlm|hoba|mutual|vapid|scram-sha-(?:1|256)|aws4-hmac-sha256|dpop|gnap|oauth|hawk|signature|apikey|api-key|sso-key|key)[ \t]+(?=[^\s"'`])/i;
+// A long run with no spaces mixing at least two of lowercase, uppercase and digits, as keys,
+// hex digests and base64 do; a hyphenated or capitalised word does not
+const TOKEN_CHARS = /^[A-Za-z0-9._~+/=-]{16,}$/;
+const tokenShaped = (value) => TOKEN_CHARS.test(value) && [/[a-z]/, /[A-Z]/, /[0-9]/].filter((c) => c.test(value)).length >= 2;
+
+// The value after an authorization or auth key is redacted when it is a scheme followed by a
+// credential, which may carry parameters, so it runs to the end of its quotes or line, or when it
+// is token-shaped on its own. Anything else, such as a visa status or a sentence, is kept
+function redactAuthorization(text, counted) {
+  let out = "";
+  let last = 0;
+  const context = lineContext(text);
+  AUTH_KEY.lastIndex = 0;
+  for (let match; (match = AUTH_KEY.exec(text));) {
+    const start = match.index + match[0].length;
+    const lineEnd = text.slice(start).search(/[\r\n]/);
+    const stop = lineEnd === -1 ? text.length : start + lineEnd;
+    let end = start;
+    let value;
+    if (QUOTES.includes(text[start])) {
+      const quote = text[start];
+      let close = start + 1;
+      while (close < stop && text[close] !== quote) close += text[close] === "\\" ? 2 : 1;
+      const inner = text.slice(start + 1, Math.min(close, stop));
+      if (AUTH_SCHEME.test(inner) || tokenShaped(inner)) {
+        end = Math.min(close + 1, stop);
+        value = `${quote}[redacted]${quote}`;
+      }
+    } else {
+      // A quote opened earlier on the line, as around a curl -H header, ends the value
+      const { quotes } = context(start);
+      const closing = (c) => QUOTES.includes(c) && quotes.has(c);
+      if (AUTH_SCHEME.test(text.slice(start, stop))) {
+        end = start;
+        while (end < stop && !closing(text[end])) end += text[end] === "\\" ? 2 : 1;
+        end = Math.min(end, stop);
+        value = "[redacted]";
+      } else {
+        end = start;
+        while (end < stop && !/[\s,;&)\]}]/.test(text[end]) && !QUOTES.includes(text[end])) end += 1;
+        value = tokenShaped(text.slice(start, end)) ? "[redacted]" : undefined;
+      }
+    }
+    if (value === undefined) continue;
+    counted();
+    out += text.slice(last, start) + value;
+    last = end;
+    AUTH_KEY.lastIndex = end;
+  }
+  return out + text.slice(last);
+}
+
 // Known secret formats only, applied before the user's rules to whole texts. A secret in no listed
 // format and not on the user's list is sent; guessing at random-looking strings erased file paths.
 export const BUILT_IN_RULES = [
@@ -99,7 +156,7 @@ export const BUILT_IN_RULES = [
   ["secret-pair", redactPairs],
   ["jwt", /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g, "[token]"],
   ["bearer", /\b(bearer)\s+[A-Za-z0-9._~+/=-]{8,}/gi, "$1 [token]"],
-  ["authorization", /\b((?:proxy-)?authorization\s*[:=]\s*)(?:(?:basic|bearer|token)\s+)?\S+/gi, "$1[redacted]"],
+  ["authorization", redactAuthorization],
   // OpenAI and Anthropic: a known label with any base64url body, or any body with a capital and a
   // digit; kebab-case names such as sk-learn-model-v2.py are lowercase and pass
   ["api-key", /\bsk-(?:(?:proj|svcacct|admin|None|ant-[a-z]+[0-9]*)-[A-Za-z0-9_-]{20,}|(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{20,})/g, "[api key]"],
