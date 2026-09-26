@@ -181,3 +181,20 @@ test("searches queued behind the account's in-flight slot wait without spending 
     assert.equal(result.spend, usdFor(200));
   }
 });
+
+test("a 429 on one of four workers under a tight ceiling does not stop the search", async (t) => {
+  let calls = 0;
+  // Three reservations fit, so the fourth worker is waiting for room when the first answer is a 429
+  const f = setup(t, { maxRetries: 1, spend: { perRunUsd: 3 * usdFor(MAX_INPUT_TOKENS) + usdFor(10000), perDayUsd: 0.2 }, fetch: async (_url, init) => {
+    if (++calls === 1) return new Response("{}", { status: 429, headers: { "retry-after-ms": "1" } });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const { questions } = JSON.parse(init.body);
+    return new Response(JSON.stringify({ model: PINNED_MODEL, answers: Object.fromEntries(Object.keys(questions).map((id) => [id, { type: "noul", noul: 0.9 }])), usage: { input_tokens: 100 } }), { headers: { "content-type": "application/json" } });
+  } });
+  const result = await searchByMeaning({ jev: f.jev, query: "search", items: Array.from({ length: 64 }, (_, i) => `line ${i}`) });
+  assert.equal(result.stopped, false);
+  assert.equal(result.failed, 0);
+  assert.equal(result.matches.length, 64);
+  assert.equal(calls, 5);
+  assert.equal(result.tokens, 400);
+});

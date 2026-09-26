@@ -1,7 +1,7 @@
 // Adapted from herdr-find 4736dd5 (Apache-2.0)
 import { APIError, RateLimitError, TypeSafeClient } from "@typesafe-ai/sdk";
 import { usdAt } from "../budget.mjs";
-import { ServiceError } from "../errors.mjs";
+import { ServiceError, SpendCapError } from "../errors.mjs";
 
 export const JEV_ENDPOINT = "https://api.typesafe.ai/v1/systemone";
 export const PINNED_MODEL = "jev-1.13.0";
@@ -49,7 +49,7 @@ function createResponder({ key, budget, assertSafe, limiter, book = async () => 
     // Usage measures about a quarter token per request byte, so counting bytes overcounts
     // without throttling like the full-context spend reservation would
     const counted = (bytes) => Math.min(bytes, MAX_INPUT_TOKENS);
-    let first, slot;
+    let first, slot, sent = false;
     const client = new TypeSafeClient({
       apiKey: key.authorization.slice("Bearer ".length),
       baseURL: new URL(endpoint).origin,
@@ -60,16 +60,22 @@ function createResponder({ key, budget, assertSafe, limiter, book = async () => 
       retry: { maxRetries, respectRetryAfter: true },
       fetch: async (_url, init) => {
         await local(() => assertSafe(init.body));
-        let ticket = first;
-        first = undefined;
-        if (!ticket) {
+        if (sent) {
           // A retry's wait for the account's window runs inside its timer, so an abort there is
           // left to the SDK as a retryable timeout, not a local failure that ends the ask
           try { await slot?.again(counted(Buffer.byteLength(init.body)), { signal: init.signal }); }
           catch (error) { if (init.signal.aborted) throw error; await local(() => { throw error; }); }
-          // A retry cannot wait for spend inside its timer, so it is refused if it does not fit now
+        }
+        sent = true;
+        let ticket = first;
+        first = undefined;
+        // A retry after an attempt that may have been billed cannot wait for spend inside its
+        // timer, so one that does not fit now fails this request rather than the ceiling
+        if (!ticket) {
           ticket = await local(async () => {
-            const held = budget.reserve(MAX_INPUT_TOKENS);
+            let held;
+            try { held = budget.reserve(MAX_INPUT_TOKENS); }
+            catch (error) { throw error instanceof SpendCapError ? new ServiceError("TypeSafe request failed and its retry does not fit under the spend ceiling now") : error; }
             try { await book(); } catch (error) { held.release(); throw error; }
             return held;
           });
@@ -85,7 +91,8 @@ function createResponder({ key, budget, assertSafe, limiter, book = async () => 
         await local(async () => {
           if (!response.ok) {
             if (response.status >= 500 || response.status === 408) ticket.settle(null);
-            else ticket.release();
+            // An unbilled refusal keeps its reservation for the retry, so the retry needs no new room
+            else first = ticket;
           } else {
             let json;
             try { json = await response.clone().json(); }
@@ -129,7 +136,7 @@ function createResponder({ key, budget, assertSafe, limiter, book = async () => 
       throw new ServiceError("TypeSafe request failed; no input or key logged");
     } finally {
       await slot?.release();
-      // An attempt that was never sent holds no spend
+      // A reservation no attempt used holds no spend
       if (first) { first.release(); await book(); }
     }
     if (json?.model !== PINNED_MODEL) throw new ServiceError("TypeSafe answered with an unexpected model");

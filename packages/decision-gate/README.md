@@ -149,7 +149,9 @@ The gate explicitly sets its key, destination, model and logging level, so SDK e
 Before the SDK starts a request's first attempt, the gate waits for room under the run's ceiling and for one of the account's in-flight slots, so a queued request never uses up its attempt's 30-second timeout.
 The slot is held until the request settles, across the SDK's retries.
 Its fetch wrapper checks the exact body, reserves the attempt against the run's ceiling, counts it in the account's rate window and persists the reservation before every network attempt, including retries.
-A retry that does not fit under the ceiling is refused rather than waiting, and a retry that waits out the rate window past its timeout is a timeout the SDK may retry.
+A refusal known not to be billed, such as a 429, hands its reservation to the retry, so the retry needs no new room.
+A retry after an attempt that may have been billed reserves afresh without waiting; if it does not fit, that request fails as a service error, and only booked plus held spend reaching the ceiling stops a run at its ceiling.
+A retry that waits out the rate window past its timeout is a timeout the SDK may retry.
 Redirects are never followed.
 A 429 or 529 records a pause for the whole account using the server's Retry-After delay, or a short fallback when absent, before SDK retry handling continues.
 For tests only, `DECISION_GATE_ENDPOINT` may point at an HTTP URL on `127.0.0.1` or `::1`; any other host is refused.
