@@ -30,8 +30,8 @@ jump); in meaning, type what you mean and press enter.
 Meaning search needs only TYPESAFE_API_KEY.
 Config: ~/.config/decision-gate/config.json, shared with other decision-gate tools.
 jevzf's own key: key_file in ~/.config/jevzf/config.json (JEVZF_CONFIG).
-Limits: DECISION_GATE_RPM, DECISION_GATE_TPS; spend: DECISION_GATE_PER_RUN_USD,
-DECISION_GATE_PER_DAY_USD.
+Limits: DECISION_GATE_RPM, DECISION_GATE_TPS, DECISION_GATE_IN_FLIGHT; spend:
+DECISION_GATE_PER_RUN_USD, DECISION_GATE_PER_DAY_USD.
 Built-in known secret formats are always filtered; a never-send file is optional.
 `;
 

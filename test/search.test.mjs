@@ -1,4 +1,5 @@
 import test from "node:test";
+import { createServer } from "node:http";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -97,20 +98,21 @@ test("batches run concurrently, and a full ceiling waits for in-flight attempts 
     const request = JSON.parse(init.body);
     return new Response(JSON.stringify({ model: PINNED_MODEL, answers: Object.fromEntries(Object.keys(request.questions).map((id) => [id, { type: "noul", noul: 0.9 }])), usage: { input_tokens: 100 } }));
   };
-  const items = Array.from({ length: 64 }, (_, i) => `line ${i}`);
+  // Eight batches, so the peak is the gate's in-flight setting rather than the batch count
+  const items = Array.from({ length: 128 }, (_, i) => `line ${i}`);
   const open = setup(t, { fetch });
   const wide = await searchByMeaning({ jev: open.jev, query: "search", items });
-  assert.equal(wide.matches.length, 64);
+  assert.equal(wide.matches.length, 128);
   assert.equal(peak, 4);
   peak = 0;
   // Room for two worst-case reservations: the other batches wait their turn rather than stop
   const tight = setup(t, { fetch, spend: { perRunUsd: 2 * usdFor(MAX_INPUT_TOKENS), perDayUsd: 0.2 } });
   const narrow = await searchByMeaning({ jev: tight.jev, query: "search", items });
   assert.equal(narrow.stopped, false);
-  assert.equal(narrow.matches.length, 64);
+  assert.equal(narrow.matches.length, 128);
   assert.equal(peak, 2);
-  assert.equal(narrow.spend, 4 * usdFor(100));
-  assert.equal(await tight.jev.remaining(), 0.2 - 4 * usdFor(100));
+  assert.equal(narrow.spend, 8 * usdFor(100));
+  assert.equal(await tight.jev.remaining(), 0.2 - 8 * usdFor(100));
 });
 
 test("jevzf spends on its own key file ahead of TYPESAFE_API_KEY, then on decision-gate's defaults", async (t) => {
@@ -144,4 +146,55 @@ test("jevzf spends on its own key file ahead of TYPESAFE_API_KEY, then on decisi
   assert.throws(() => openJev({ env: { ...base, JEVZF_CONFIG: path.join(dir, "missing.json") } }), /cannot read jevzf config/);
   write(path.join(dir, "jevzf/config.json"), JSON.stringify({ key_file: "jevzf-key", spend: { per_day_usd: 1 } }));
   assert.throws(() => openJev({ env: base }), /holds only key_file/);
+});
+
+test("searches queued behind the account's in-flight slot wait without spending their attempt timeout", async (t) => {
+  const dir = mkdtempSync(path.join(tmpdir(), "jevzf-search-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  // Each answer takes longer than half the attempt timeout, so a request queued behind two others
+  // would time out if its wait for the slot counted against its attempt
+  let open = 0, peak = 0, served = 0;
+  const server = createServer(async (req, res) => {
+    open++; peak = Math.max(peak, open);
+    let body = "";
+    for await (const chunk of req) body += chunk;
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    open--; served++;
+    const { questions } = JSON.parse(body);
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ model: PINNED_MODEL, answers: Object.fromEntries(Object.keys(questions).map((id) => [id, { type: "noul", noul: 0.9 }])), usage: { input_tokens: 100 } }));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  const config = path.join(dir, "config.json");
+  writeFileSync(config, JSON.stringify({ limits: { in_flight: 1 } }));
+  const env = { XDG_CONFIG_HOME: dir, XDG_STATE_HOME: dir, XDG_CACHE_HOME: dir, TYPESAFE_API_KEY: "fixture-only", DECISION_GATE_CONFIG: config, DECISION_GATE_ENDPOINT: `http://127.0.0.1:${server.address().port}/v1/systemone` };
+  // Two searches at once put two workers on the account's one slot, each with two batches
+  const search = (name) => searchByMeaning({ jev: openJev({ env, maxRetries: 0, timeoutMs: 250 }), query: "search", items: Array.from({ length: 17 }, (_, i) => `${name} line ${i}`), noCache: true });
+  const results = await Promise.all([search("first"), search("second")]);
+  assert.equal(peak, 1);
+  assert.equal(served, 4);
+  for (const result of results) {
+    assert.equal(result.failed, 0);
+    assert.equal(result.matches.length, 17);
+    assert.equal(result.tokens, 200);
+    assert.equal(result.spend, usdFor(200));
+  }
+});
+
+test("a 429 on one of four workers under a tight ceiling does not stop the search", async (t) => {
+  let calls = 0;
+  // Three reservations fit, so the fourth worker is waiting for room when the first answer is a 429
+  const f = setup(t, { maxRetries: 1, spend: { perRunUsd: 3 * usdFor(MAX_INPUT_TOKENS) + usdFor(10000), perDayUsd: 0.2 }, fetch: async (_url, init) => {
+    if (++calls === 1) return new Response("{}", { status: 429, headers: { "retry-after-ms": "1" } });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const { questions } = JSON.parse(init.body);
+    return new Response(JSON.stringify({ model: PINNED_MODEL, answers: Object.fromEntries(Object.keys(questions).map((id) => [id, { type: "noul", noul: 0.9 }])), usage: { input_tokens: 100 } }), { headers: { "content-type": "application/json" } });
+  } });
+  const result = await searchByMeaning({ jev: f.jev, query: "search", items: Array.from({ length: 64 }, (_, i) => `line ${i}`) });
+  assert.equal(result.stopped, false);
+  assert.equal(result.failed, 0);
+  assert.equal(result.matches.length, 64);
+  assert.equal(calls, 5);
+  assert.equal(result.tokens, 400);
 });
