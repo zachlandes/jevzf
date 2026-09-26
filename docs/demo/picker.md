@@ -10,11 +10,11 @@
 The picker needs fzf 0.66 or newer, for its private Unix-socket `--listen`. An older fzf gets one line naming the fix, and the filter keeps working without fzf.
 
 ```bash
-node stand-in.mjs 'printf "#!/bin/sh\necho \"0.65.2 (brew)\"\n" > "$HOME/fzf"; chmod +x "$HOME/fzf"; echo login | JEVZF_FZF="$HOME/fzf" jevzf; echo "exit $?"'
+node stand-in.mjs 'mkdir "$HOME/old" && printf "#!/bin/sh\necho \"0.65.2 (brew)\"\n" > "$HOME/old/fzf" && chmod +x "$HOME/old/fzf"; echo login | PATH="$HOME/old:$PATH" jevzf; echo "exit $?"'
 ```
 
 ```output
-jevzf: the picker needs fzf 0.66 or newer, found 0.65.2; install it with brew install fzf (or set JEVZF_FZF), or use the filter: cmd | jevzf QUERY
+jevzf: the picker needs fzf 0.66 or newer, found 0.65.2; install it with brew install fzf, or use the filter: cmd | jevzf QUERY
 exit 2
 ```
 
