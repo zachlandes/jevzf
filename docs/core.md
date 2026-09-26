@@ -75,7 +75,9 @@ Up to eight batches of 16 items are in flight at once, dispatched in input order
 The returned list is sorted by probability, with input order breaking ties.
 
 A full ceiling first waits for attempts in flight to settle, since they usually cost far less than their reservation.
-It stops the search only when nothing is left in flight, returning what was judged with `stopped: true` and an `unjudged` count.
+It stops the search only when nothing is left in flight, returning what was judged with `stopped: true` and an `unjudged` count, and the notice names the ceiling, this search's or today's.
+If the ceiling cannot cover even one request, so nothing was judged or sent, the search throws a `SpendCapError` instead.
+`run.summary().ceiling` is `"day"` when what is left of today bounds the run and `"search"` otherwise.
 Ordinary service failures return successful judgments when any exist, plus a failed-item count; if every request fails, the search throws.
 A failed privacy check stops before sending any batch.
 `estimateSearch({ jev, query, items, capUsd })` prepares the same requests but needs no key and sends nothing.
