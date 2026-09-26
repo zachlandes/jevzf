@@ -28,11 +28,18 @@ Built-in known secret formats are always filtered; a never-send file is optional
 process.stdout.on("error", (error) => process.exit(error.code === "EPIPE" ? 0 : 2));
 const notice = (message) => process.stderr.write(`jevzf: ${message}\n`);
 const controller = new AbortController();
-process.once("SIGINT", () => {
-  controller.abort(new Error("interrupted"));
-  // Handling SIGINT replaces the default exit, so an idle stdin read must be ended explicitly
-  process.stdin.destroy();
-});
+// fzf ends a superseded reload with SIGTERM and a closed terminal sends SIGHUP; like Ctrl-C, both
+// abort in-flight requests so the run can close its spend hold before exiting
+const SIGNAL_EXIT = { SIGINT: 130, SIGTERM: 143, SIGHUP: 129 };
+let interruptedBy;
+for (const signal of Object.keys(SIGNAL_EXIT)) {
+  process.once(signal, () => {
+    interruptedBy ??= signal;
+    controller.abort(new Error("interrupted"));
+    // Handling the signal replaces the default exit, so an idle stdin read must be ended explicitly
+    process.stdin.destroy();
+  });
+}
 // Significant digits keep tiny amounts readable; cents stay visible on round amounts such as 0.20
 const usd = (value, digits = 3) => {
   const text = new Intl.NumberFormat("en-US", { maximumSignificantDigits: digits }).format(value);
@@ -116,7 +123,7 @@ async function main() {
 }
 
 main().catch((error) => {
-  if (controller.signal.aborted) { process.exitCode = 130; return; }
+  if (controller.signal.aborted) { process.exitCode = SIGNAL_EXIT[interruptedBy]; return; }
   notice(error instanceof UsageError ? error.message : describeError(error));
   process.exitCode = 2;
 });
