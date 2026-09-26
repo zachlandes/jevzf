@@ -142,7 +142,7 @@ test("a gateway 429 without Retry-After pauses only the gateway's account, and e
   assert.deepEqual(readdirSync(limits), ["vercel-ai-gateway"]);
   const { pausedUntil } = JSON.parse(readFileSync(path.join(limits, "vercel-ai-gateway/accounts/default.json"), "utf8"));
   assert.equal(pausedUntil - now, 5000);
-  // No credits: every later request would get the same answer, so callers need its status
+  // A 402 reaches callers as a ServiceError carrying its status
   await assert.rejects(ask(jev, request("unpaid")), (error) => error.status === 402 && error.message === "Vercel AI Gateway returned HTTP 402");
   assert.equal(f.sent.length, 2);
 });

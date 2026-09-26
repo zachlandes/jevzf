@@ -42,7 +42,7 @@ A key belongs to one provider, so the gateway is never sent `TYPESAFE_API_KEY`, 
 Spend is booked from the answer's reported input tokens at USD 0.042 per million input tokens, output free, in the gateway's own ledger with its own daily ceiling per key.
 A `402` from the gateway fails the request with a `ServiceError` whose `status` is `402`.
 
-Requests pass through Vercel, which adds it as a party on the data path.
+Requests pass through Vercel, an added party on the data path.
 
 The gateway gets its own rate window, `429` pause and in-flight requests, separate from a TypeSafe account's.
 Its defaults are conservative guesses, not measurements: 60 requests a minute and 2 in flight.
