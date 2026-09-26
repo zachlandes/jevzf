@@ -41,7 +41,7 @@ const destination = (fixed) => (env = process.env) => {
 const createResponder = ({ label, baseURL, wireModel, maxRetries: providerRetries, pauseFallbackMs }) => function respond({ key, budget, assertSafe, limiter, book = async () => {}, fetchImpl = globalThis.fetch, endpoint, timeoutMs = 30000, maxRetries = providerRetries }) {
   if (!key?.authorization || !budget || !assertSafe || !endpoint) throw new TypeError("key, spend budget, never-send check and endpoint are required");
   return async (request, { signal } = {}) => {
-    if (![undefined, PINNED_MODEL, wireModel].includes(request.model)) throw new ServiceError(`request model must be omitted or ${PINNED_MODEL}`);
+    if (![undefined, PINNED_MODEL].includes(request.model)) throw new ServiceError(`request model must be omitted or ${PINNED_MODEL}`);
     request = { ...request, model: wireModel };
     const abort = new AbortController();
     let localError;

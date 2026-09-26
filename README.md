@@ -165,6 +165,7 @@ To give jevzf a key of its own, so its spend is ledgered and capped apart from o
 
 That file holds only `key_file`; every other setting stays in decision-gate's config.
 The key comes from jevzf's `key_file` first, so a `TYPESAFE_API_KEY` exported for other tools is never spent by jevzf, then `TYPESAFE_API_KEY`, then decision-gate's `key_file`; key files must be mode 600, and no other location is read.
+jevzf's `key_file` holds a TypeSafe key, so with decision-gate's experimental `vercel-ai-gateway` provider selected it is never sent, and jevzf asks for `AI_GATEWAY_API_KEY` instead.
 Keep the key out of command arguments.
 
 ## Privacy

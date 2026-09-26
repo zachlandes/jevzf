@@ -37,7 +37,7 @@ try {
 Choose it by name, with `"provider": "vercel-ai-gateway"` in the config or `DECISION_GATE_PROVIDER=vercel-ai-gateway`, and export `AI_GATEWAY_API_KEY`.
 The gate never picks a provider from whichever key variable happens to be set, since other tools export those keys for their own use.
 The key is sent as a Bearer token only to `https://ai-gateway.vercel.sh/typesafe/v1/systemone`, the gateway's TypeSafe-compatible endpoint, so requests and answers keep TypeSafe's shapes and callers change nothing else.
-An explicit key or `key_file` must then hold a gateway key, since it goes to Vercel.
+A key belongs to one provider, so the gateway is never sent `TYPESAFE_API_KEY`, the top-level `key_file` or a caller's TypeSafe key; without a gateway key it refuses to send and names where one goes.
 
 It costs the same as TypeSafe directly: USD 0.042 per million input tokens, output free, because the gateway charges the provider's list price with no markup (Vercel's model catalog, checked 2026-09-26).
 Spend is booked from the answer's reported input tokens at that price, in the gateway's own ledger with its own daily ceiling per key.
@@ -67,10 +67,14 @@ The returned object holds `status()`, `config`, `redactor`, `remaining()`, `cach
 
 ## Key sources
 
-Key precedence is an explicit `key: { file }`, `{ env }` or `{ value }`, then the provider's key variable (`TYPESAFE_API_KEY`, or `AI_GATEWAY_API_KEY` for the gateway), then the config's `key_file`.
-Exactly one explicit source is allowed, and no other credential location is guessed.
+Every key belongs to one provider and is only ever sent to that provider.
+Key precedence is an explicit key for the selected provider, then that provider's key variable (`TYPESAFE_API_KEY`, or `AI_GATEWAY_API_KEY` for the gateway), then that provider's key file.
+An explicit key names its provider and exactly one source: `key: { provider: "typesafe", file }`, `{ provider, env }` or `{ provider, value }`.
+An explicit key for another provider is skipped, never sent.
+TypeSafe's key file is the config's top-level `key_file`; the gateway's is `key_file` in a `"vercel-ai-gateway"` section, such as `"vercel-ai-gateway": { "key_file": "~/.config/decision-gate/gateway-key" }`, and that section holds nothing else.
+No other credential location is guessed, and no provider falls back to another's key.
 Key files must be regular, nonempty files with mode 600.
-`jev.status()` returns `{ ok: true }` or `{ ok: false, reason }` without reading the contents of a key file; `missing: true` marks the case where no key source is configured at all.
+`jev.status()` returns `{ ok: true }` or `{ ok: false, reason }` without reading the contents of a key file; `missing: true` marks the case where the selected provider has no key source at all, and then `label` and `keyEnv` name the provider and its key variable.
 A status check cannot establish whether the service will accept a credential.
 The key is read when a request or remaining-budget lookup first needs its fingerprint, and it is never enumerable, logged or stored.
 
@@ -98,7 +102,7 @@ No file is required.
 `provider` is `typesafe` (the default) or `vercel-ai-gateway`; anything else is refused.
 `DECISION_GATE_PROVIDER`, `DECISION_GATE_PER_RUN_USD`, `DECISION_GATE_PER_DAY_USD`, `DECISION_GATE_RPM`, `DECISION_GATE_TPS`, `DECISION_GATE_IN_FLIGHT` and `DECISION_GATE_NEVER_SEND_FILE` override the corresponding config values.
 Relative paths in the file resolve beside it, and `~/` works.
-Every tool reads the same limits section and daily ceiling; an explicit caller per-run ceiling remains the caller's own.
+Every tool reads the same limits and daily ceiling; an explicit caller per-run ceiling remains the caller's own.
 
 ## Accounts and rate limits
 
@@ -114,8 +118,9 @@ Every key shares that account's one rate window, one 429 pause and one set of in
 - `requests_per_minute` and `tokens_per_second` are TypeSafe's published limits for the pinned model; the gate keeps to `share` of both.
 - `in_flight` is how many requests the account may have open at once, 4 by default.
 
-Those defaults are TypeSafe's; the gateway's are 60 requests a minute and 2 in flight.
-A section named after a provider, such as `"limits": { "vercel-ai-gateway": { "in_flight": 1 } }`, applies only to that provider and wins over the shared keys, and the `DECISION_GATE_*` variables win over both.
+Those defaults are TypeSafe's, and the unsectioned keys apply to the `typesafe` provider only.
+The gateway keeps its own defaults, 60 requests a minute and 2 in flight, whatever the unsectioned keys say.
+A section named after a provider, such as `"limits": { "vercel-ai-gateway": { "in_flight": 1 } }`, applies only to that provider and wins over its defaults and, for `typesafe`, over the unsectioned keys; the `DECISION_GATE_*` variables win over all of them.
 
 Only one large request, estimated at 32,000 tokens or more, is open at a time; that is fixed, not configured.
 
@@ -132,7 +137,7 @@ await run.close();
 ```
 
 `capUsd` can lower the per-run ceiling, never raise it.
-A request's `model` may be omitted: the gate sets the provider's model id, and also accepts `PINNED_MODEL` there for either provider.
+A request's `model` may be omitted or `PINNED_MODEL`, for either provider; the gate sends the provider's own model id, and refuses any other value.
 Raw requests are checked, not silently rewritten: a forbidden value in any serialized field or its decoded JSON form prevents the request.
 Callers that send user text redact it first with `jev.redactor.redact`, and `jev.redactor.check(body)` runs the same final check on a serialized request before anything is queued.
 `jev.redactor.clean(text)` is true when one piece of text would pass that check as a string in a request: nothing forbidden survives in it and the built-in rules would leave it unchanged.
