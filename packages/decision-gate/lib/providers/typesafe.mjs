@@ -24,22 +24,25 @@ export const usdFor = (tokens) => usdAt(JEV_PRICE, tokens);
 
 export const estimateUsd = (bytes) => usdFor(bytes * ESTIMATE_TOKENS_PER_BYTE);
 
-// Only a loopback address may stand in for TypeSafe, so a test's stand-in can never be a real host
-// the key would be sent to
-function endpoint(env = process.env) {
+// Only a loopback address may stand in for a provider's fixed endpoint, so a test's stand-in can
+// never be a real host the key would be sent to
+const destination = (fixed) => (env = process.env) => {
   const wanted = env.DECISION_GATE_ENDPOINT;
-  if (!wanted) return JEV_ENDPOINT;
+  if (!wanted) return fixed;
   try {
     const url = new URL(wanted);
     if (url.protocol === "http:" && !url.username && !url.password && ["127.0.0.1", "[::1]"].includes(url.hostname)) return url.href;
   } catch { /* Report a generic error without echoing the supplied URL */ }
   throw new ServiceError("DECISION_GATE_ENDPOINT must be a numeric HTTP loopback URL");
-}
+};
 
-function createResponder({ key, budget, assertSafe, limiter, book = async () => {}, fetchImpl = globalThis.fetch, endpoint = JEV_ENDPOINT, timeoutMs = 30000, maxRetries = 2 }) {
-  if (!key?.authorization || !budget || !assertSafe) throw new TypeError("key, spend budget and never-send check are required");
+// The request and response shapes are TypeSafe's own, so any provider serving that API at a fixed
+// endpoint shares this responder; the gate, not the caller, names the model on the wire
+const createResponder = ({ label, baseURL, wireModel, maxRetries: providerRetries, pauseFallbackMs }) => function respond({ key, budget, assertSafe, limiter, book = async () => {}, fetchImpl = globalThis.fetch, endpoint, timeoutMs = 30000, maxRetries = providerRetries }) {
+  if (!key?.authorization || !budget || !assertSafe || !endpoint) throw new TypeError("key, spend budget, never-send check and endpoint are required");
   return async (request, { signal } = {}) => {
-    if (request.model !== PINNED_MODEL) throw new ServiceError("request model is not pinned");
+    if (![undefined, PINNED_MODEL, wireModel].includes(request.model)) throw new ServiceError(`request model must be omitted or ${PINNED_MODEL}`);
+    request = { ...request, model: wireModel };
     const abort = new AbortController();
     let localError;
     const local = async (fn) => {
@@ -52,8 +55,8 @@ function createResponder({ key, budget, assertSafe, limiter, book = async () => 
     let first, slot, sent = false;
     const client = new TypeSafeClient({
       apiKey: key.authorization.slice("Bearer ".length),
-      baseURL: new URL(endpoint).origin,
-      defaultModel: PINNED_MODEL,
+      baseURL: endpoint.startsWith(`${baseURL}/`) ? baseURL : new URL(endpoint).origin,
+      defaultModel: wireModel,
       // Explicit settings prevent SDK environment defaults from leaking data or keys
       logLevel: "off",
       timeout: timeoutMs,
@@ -75,7 +78,7 @@ function createResponder({ key, budget, assertSafe, limiter, book = async () => 
           ticket = await local(async () => {
             let held;
             try { held = budget.reserve(MAX_INPUT_TOKENS); }
-            catch (error) { throw error instanceof SpendCapError ? new ServiceError("TypeSafe request failed and its retry does not fit under the spend ceiling now") : error; }
+            catch (error) { throw error instanceof SpendCapError ? new ServiceError(`${label} request failed and its retry does not fit under the spend ceiling now`) : error; }
             try { await book(); } catch (error) { held.release(); throw error; }
             return held;
           });
@@ -104,7 +107,7 @@ function createResponder({ key, budget, assertSafe, limiter, book = async () => 
           // The slot is held until the whole call settles, so no waiter starts ahead of this pause
           if (response.status === 429 || response.status === 529) {
             const delay = new RateLimitError(response.status, undefined, response.headers).retryAfterMs;
-            await limiter?.pause(Number.isFinite(delay) ? delay : 1000);
+            await limiter?.pause(Number.isFinite(delay) ? delay : pauseFallbackMs);
           }
         });
         return response;
@@ -129,27 +132,41 @@ function createResponder({ key, budget, assertSafe, limiter, book = async () => 
           // The SDK exposes its Retry-After parser through RateLimitError, including HTTP dates
           const delay = new RateLimitError(error.status, undefined, error.headers).retryAfterMs;
           const after = Number.isFinite(delay) ? `${Math.ceil(delay / 1000)} seconds` : "not supplied";
-          throw new ServiceError(`TypeSafe returned HTTP ${error.status}; stopped; retry-after: ${after}`, { status: error.status });
+          throw new ServiceError(`${label} returned HTTP ${error.status}; stopped; retry-after: ${after}`, { status: error.status });
         }
-        throw new ServiceError(`TypeSafe returned HTTP ${error.status}`, { status: error.status });
+        throw new ServiceError(`${label} returned HTTP ${error.status}`, { status: error.status });
       }
-      throw new ServiceError("TypeSafe request failed; no input or key logged");
+      throw new ServiceError(`${label} request failed; no input or key logged`);
     } finally {
       await slot?.release();
       // A reservation no attempt used holds no spend
       if (first) { first.release(); await book(); }
     }
-    if (json?.model !== PINNED_MODEL) throw new ServiceError("TypeSafe answered with an unexpected model");
+    if (json?.model !== wireModel) throw new ServiceError(`${label} answered with an unexpected model`);
     return json;
   };
+};
+
+// A provider serving TypeSafe's API: its key variable, one hard-coded destination, the model id it
+// sends and expects back, its price, and limiter defaults for an account there
+export function systemOneProvider({ name, label, keyEnv, endpoint, baseURL, wireModel, pinned, price, limits, maxRetries = 2, pauseFallbackMs = 1000 }) {
+  return Object.freeze({
+    name, label, keyEnv, model: wireModel, pinned, price,
+    limits: Object.freeze(limits),
+    endpoint: destination(endpoint),
+    respond: createResponder({ label, baseURL, wireModel, maxRetries, pauseFallbackMs })
+  });
 }
 
-export const typesafe = Object.freeze({
+export const typesafe = systemOneProvider({
   name: "typesafe",
   label: "TypeSafe",
   keyEnv: "TYPESAFE_API_KEY",
-  model: PINNED_MODEL,
+  endpoint: JEV_ENDPOINT,
+  baseURL: "https://api.typesafe.ai",
+  wireModel: PINNED_MODEL,
+  pinned: true,
   price: JEV_PRICE,
-  endpoint,
-  respond: createResponder
+  // TypeSafe's published limits for the pinned model
+  limits: { requestsPerMinute: 1200, tokensPerSecond: 250000, inFlight: 4 }
 });
