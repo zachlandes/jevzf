@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, readdirSync, chmodSync, mkdirSync, existsSync, statSync, utimesSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { openJev, searchByMeaning, estimateSearch } from "../lib/core.mjs";
@@ -76,12 +76,12 @@ test("per-item cache reuses unchanged items and contains neither original nor qu
   }
 });
 
-test("estimate needs no key and known-format filtering leaves hashes and email intact", (t) => {
+test("estimate needs no key; known formats are filtered while hashes and paths pass", (t) => {
   const f = setup(t, { key: { value: "" } });
   assert.equal(f.jev.status().ok, false);
   const hash = "abcdef1234567890".repeat(4);
-  const estimate = estimateSearch({ jev: f.jev, query: "search", items: [hash, "public@example.invalid", "Bearer abcdefghijklmnopqrst"] });
-  assert.equal(estimate.changed, 1);
+  const estimate = estimateSearch({ jev: f.jev, query: "search", items: [hash, "./src/crypto/sha256Hmac/hmacSha256Digest.ts", "public@example.invalid", "Bearer abcdefghijklmnopqrst"] });
+  assert.equal(estimate.changed, 2);
   assert.equal(f.sent.length, 0);
 });
 
@@ -189,9 +189,9 @@ test("locks left by dead or stopped owners are reclaimed, and live fresh locks a
   const f = setup(t);
   const file = path.join(f.dir, "state.json");
   const lock = `${file}.lock`;
-  const plant = (pid, ageMs = 0) => {
+  const plant = (pid, ageMs = 0, host = hostname()) => {
     mkdirSync(lock);
-    writeFileSync(path.join(lock, "owner.json"), JSON.stringify({ pid, token: crypto.randomUUID() }));
+    writeFileSync(path.join(lock, "owner.json"), JSON.stringify({ host, pid, token: crypto.randomUUID() }));
     if (ageMs) utimesSync(lock, new Date(Date.now() - ageMs), new Date(Date.now() - ageMs));
   };
   const gone = spawnSync(process.execPath, ["-e", "0"]).pid;
@@ -200,11 +200,22 @@ test("locks left by dead or stopped owners are reclaimed, and live fresh locks a
   mkdirSync(`${lock}.${crypto.randomUUID()}.tmp`);
   assert.equal(await locked(file, () => "dead owner"), "dead owner");
   assert.ok(!existsSync(lock));
-  plant(process.pid, 31000);
+  const sleeper = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"]);
+  t.after(() => sleeper.kill());
+  // A live owner holding a lock this long is stopped, since holders never wait on anything
+  plant(sleeper.pid, 31000);
   assert.equal(await locked(file, () => "stopped owner"), "stopped owner");
-  plant(process.pid);
+  plant(sleeper.pid);
   let now = 0;
   const time = { now: () => now, sleep: async (ms) => { now += ms; } };
+  await assert.rejects(locked(file, () => "stolen", { time, timeoutMs: 100 }), /lock timed out/);
+  assert.ok(existsSync(lock));
+  rmSync(lock, { recursive: true });
+  // A lock naming this process's own pid that this process does not hold came from a reused pid
+  plant(process.pid);
+  assert.equal(await locked(file, () => "reused pid"), "reused pid");
+  // Another host's pid proves nothing here, so only age can free its lock
+  plant(gone, 0, `not-${hostname()}`);
   await assert.rejects(locked(file, () => "stolen", { time, timeoutMs: 100 }), /lock timed out/);
   assert.ok(existsSync(lock));
 });
@@ -217,7 +228,7 @@ test("a second reaper cannot move a newer lock onto the same stale owner's tombs
   const gone = spawnSync(process.execPath, ["-e", "0"]).pid;
   const plant = (marker) => {
     mkdirSync(lock);
-    writeFileSync(path.join(lock, "owner.json"), JSON.stringify({ pid: gone, token: stale }));
+    writeFileSync(path.join(lock, "owner.json"), JSON.stringify({ host: hostname(), pid: gone, token: stale }));
     if (marker) mkdirSync(path.join(lock, marker));
   };
   plant();

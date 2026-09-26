@@ -15,7 +15,7 @@ The SDK owns serialization, timeouts, retries and `retry-after` parsing.
 jevzf wraps the SDK's `fetch`, so every attempt it makes, retries included, passes the never-send check, the ceilings and the limiter, and nothing reimplements what the SDK already does.
 
 The secret filter recognises known formats only.
-Guessing at long random strings or email addresses would change ordinary input such as commit hashes and author lines, and a user who needs more has the never-send list.
+Guessing at long random strings would erase ordinary input such as commit hashes and file paths with digits, which an earlier heuristic did; a user who needs more has the never-send list.
 
 Spend and rate limits live in the one config file, with environment overrides, and need no lines by default.
 A second limits file would be a second place to look for no gain.

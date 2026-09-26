@@ -103,7 +103,7 @@ try {
 Raw requests are checked, not silently rewritten.
 A forbidden value in any serialized field or its decoded JSON form prevents the request.
 Search performs redaction before this same final check.
-Built-in rules cover known secret formats, not arbitrary long hashes or email addresses.
+Built-in rules cover known secret formats and email addresses, not arbitrary long hashes or random-looking strings, so file paths reach the service unchanged.
 A private optional never-send file adds user rules and forbidden patterns.
 
 Await `close()` to replace the run's hold with its committed cost.

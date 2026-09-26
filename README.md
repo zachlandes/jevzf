@@ -128,9 +128,36 @@ Keep the key out of command arguments.
 ## Privacy
 
 Meaning search sends the query and the lines to TypeSafe's HTTPS API.
-Before anything is sent, a built-in filter replaces known secret formats: private keys, JWTs, bearer and authorization headers, `sk-` style API keys, GitHub, Slack, AWS and Google keys, `password=` style pairs and credentials in URLs.
-It recognises known formats only; it does not guess at long random strings or email addresses.
+Before anything is sent, a built-in filter replaces known secret formats in the query and every line.
 The final check runs on the exact request body of every attempt, retries included, and refuses to send one in which a known secret survives.
+The built-in filter recognises known formats only:
+
+- PEM and PGP private-key blocks, including every line of a block piped in as separate lines; each line is judged by the key text at its end, so `rg -n` or `rg -C` paths (spaces included), `git diff` markers and `cat -n` numbers are kept and the key text is redacted; a block starts at a line whose last text is the BEGIN marker, so a multi-line quoted value such as a `.env` `PRIVATE_KEY="` or a triple-quoted or template string is covered while a one-line string constant holding only the marker is not, and runs to a line holding the END marker, whatever closes the value after it (such as `` `; `` or `""")`), or to the first line that is not key body when the key was cut off; a key held on one line with escaped `\n` newlines is redacted from BEGIN through END
+- JWTs
+- Prefixed API keys: OpenAI and Anthropic `sk-proj-`, `sk-svcacct-`, `sk-admin-`, `sk-None-` and `sk-ant-`, and any other `sk-` key of 20 or more characters with a capital letter and a digit, Stripe `sk_live_`/`sk_test_`, GitHub `ghp_`/`gho_`/`ghs_`/`ghu_`/`ghr_`/`github_pat_`, GitLab `glpat-`, npm `npm_`, Slack `xoxb-`/`xoxp-`/`xoxa-` and similar, AWS `AKIA`/`ASIA`, Google `AIza`
+- `Bearer` tokens and `Authorization` header values
+- Credentials in URLs and email addresses
+- The value in pairs whose key contains password, passwd, pwd, secret, token, apikey or key as a whole segment (split by `_`, `-` or a case change, so `SECRET_KEY_BASE`, `apiKey`, `DBPassword` and `password_confirmation` count and `tokens` or `monkey` do not), after `=`, `:`, `:=`, `=>` or a comparison, whatever the spacing:
+  - A quoted value is always redacted.
+  - A bare value is redacted unless it is plainly code: an identifier with no digits; anything starting with `$` followed by letters, such as `$VAR` or `${VAR}`; dotted member access whose segments may contain digits, or indexing with anything inside the brackets, such as `os.environ['KEY']`; or any value containing `(`, which counts as a call.
+    So `password = hunter2`, `aws_secret_access_key = wJal...` and `--token=abc123` are redacted, while `password=pw`, `token: string` and `api_key = get_key()` pass.
+  - A bare value ends at whitespace, a comma, or a quote or bracket that closes one opened earlier on the line; a stray quote or bracket stays inside it.
+
+A secret in no known format that is not on your never-send list is sent as written; add such values to the list, and choose input deliberately.
+
+Known limits:
+
+- A secret made only of letters, with no digits or punctuation, looks like an identifier and is sent, for example `password = hunter`.
+- A secret under a key that names no secret word, such as `DB_PASS=...`, or with no `=` or `:` between key and value, such as `--password hunter2`, is sent.
+- A number under a secret-named key is redacted, so `tokenCount = 5` loses its value.
+- A private key whose body lines are each quoted or concatenated, such as `"MIIE...\n" +`, is not recognised line by line, so its body is sent.
+- A typed declaration with a quoted default is sent, because the type name is taken as the value, for example `password: str = "hunter2secret"`.
+- A value containing `(` is treated as a call and sent, for example `DB_PASSWORD=K9#m(Lq2!x`.
+- A dotted value is treated as member access and sent, for example `password=Summer2024.Winter`.
+- A value starting with `$` is treated as a variable and sent, for example `password=$ecretPass`.
+- A bracketed value is treated as indexing and sent, for example `password=a[hunter2secret]`.
+- An apostrophe earlier on the line, as in prose like "don't", can shift where a value ends, so part of it is sent.
+- On the over-redaction side, `rg -n` output from an extensionless file named after a secret word loses its content, for example `bin/token:12:#!/bin/sh`.
 
 For private values no pattern can know, such as names, customer ids or internal hosts, add a never-send list and point `never_send_file` or `JEVZF_NEVER_SEND_FILE` at it (mode 600):
 
