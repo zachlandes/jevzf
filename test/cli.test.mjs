@@ -433,22 +433,20 @@ test("code lines keep everything but a secret's value", async (t) => {
     "type Props = { apiKey: string; onChange: (key: string) => void };",
     "const secretName = process.env.SECRET_NAME;",
     'logger.info("token refreshed", { userId });',
-    "password_reset_url: /account/reset",
     "const tokenCount = tokens.length;",
     "- name: Rotate API key",
     "if (password.length < 12) return false;",
-    "  key: user-profile-panel",
     '@app.post("/token")',
     'return jwt.encode(payload, key, algorithm="HS256")',
     "password_hash = bcrypt.hash(password, rounds)",
     "for key, value in settings.items():",
     "  - key: ENVIRONMENT",
+    "api_key=xyz",
     "password = get_password()",
     "const token = await fetchToken(user)",
     "token = getToken();",
     "api_key = os.environ['API_KEY']",
     "if (token === expectedToken) {",
-    "const tokenCount = 5",
     "monkey=banana tokens=5 keyboard=qwerty"
   ];
   const secret = [
@@ -457,14 +455,23 @@ test("code lines keep everything but a secret's value", async (t) => {
     ["password: hunter2secret99", "password: [redacted]"],
     ['secret: "two words here"', 'secret: "[redacted]"'],
     ['{"token": "abc def", "user": "zed"}', '{"token": "[redacted]", "user": "zed"}'],
-    ["api_key=xyz", "api_key=[redacted]"],
+    ["api_key=xyz9", "api_key=[redacted]"],
     ["'password' => 'hunter2secret',", "'password' => '[redacted]',"],
     [':password => "rubysecret"', ':password => "[redacted]"'],
     ['if (password === "hunter2secret") {', 'if (password === "[redacted]") {'],
     ['if (password !== "x") {', 'if (password !== "[redacted]") {'],
     ['password != "x"', 'password != "[redacted]"'],
     ["password = `hunter2 secret` + suffix", "password = `[redacted]` + suffix"],
-    ["DB_PASSWORD=abc;def'ghi", "DB_PASSWORD=[redacted]'ghi"],
+    ["DB_PASSWORD=abc;def'ghi", "DB_PASSWORD=[redacted]"],
+    ["password=abc)def", "password=[redacted]"],
+    ["KEY=val}ue", "KEY=[redacted]"],
+    ["password_reset_url: /account/reset", "password_reset_url: [redacted]"],
+    ["  key: user-profile-panel", "  key: [redacted]"],
+    ["const tokenCount = 5", "const tokenCount = [redacted]"],
+    ["DBPassword=hunter2", "DBPassword=[redacted]"],
+    ["APIToken=abc1", "APIToken=[redacted]"],
+    ["APIKey=abc1", "APIKey=[redacted]"],
+    ["JWTSecret=abc1", "JWTSecret=[redacted]"],
     ["password=[bracketed]secret", "password=[redacted]"],
     ['password="unterminated secret', 'password="[redacted]"'],
     ['"password": "ab\\"cdsecret"', '"password": "[redacted]"'],
@@ -483,6 +490,34 @@ test("code lines keep everything but a secret's value", async (t) => {
   assert.ok(unchanged.length + secret.length >= 30);
   await f.run([...unchanged, ...secret.map(([line]) => line)].join("\n"));
   assert.deepEqual(sentItems(f.requests).sort(), [...unchanged, ...secret.map(([, sent]) => sent)].sort());
+});
+
+test("credentials in real config formats lose their values while code references pass", async (t) => {
+  const f = await fixture(t);
+  // Synthetic values in each file format, never real credentials
+  const cases = [
+    ["[default]", "[default]"],
+    ["aws_access_key_id = " + "AK" + "IA" + "Q2W3E4R5T6Y7U8I9", "aws_access_key_id = [redacted]"],
+    ["aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "aws_secret_access_key = [redacted]"],
+    ["password = pypi-AgEIcHlwaS5vcmcCJDk", "password = [redacted]"],
+    ["[client]", "[client]"],
+    ["password = hunter2", "password = [redacted]"],
+    ["DATABASE_PASSWORD=s3cr3t-Pa55", "DATABASE_PASSWORD=[redacted]"],
+    ["SECRET_KEY_BASE=3f4a9c1e8b7d6a5f4e3d2c1b0a9f8e7d", "SECRET_KEY_BASE=[redacted]"],
+    ['    "DBPassword": "hunter2",', '    "DBPassword": "[redacted]",'],
+    ['    "ApiKey": "abc123-def456",', '    "ApiKey": "[redacted]",'],
+    ['    "ClientSecret": "Zm9vYmFy"', '    "ClientSecret": "[redacted]"'],
+    ['api_token = "tok_2f9c8e7a"', 'api_token = "[redacted]"'],
+    ["token = abc123def456", "token = [redacted]"],
+    ["export GITHUB_TOKEN_READONLY=abc123def456", "export GITHUB_TOKEN_READONLY=[redacted]"],
+    ["mycli deploy --token=abc123 --verbose", "mycli deploy --token=[redacted] --verbose"],
+    ["connect(host=h, password=pw, user=u)", "connect(host=h, password=pw, user=u)"],
+    ["Client(api_key=api_key)", "Client(api_key=api_key)"],
+    ["Client(api_key='x-live-1')", "Client(api_key='[redacted]')"],
+    ["connect(password=abc123, timeout=5)", "connect(password=[redacted], timeout=5)"]
+  ];
+  await f.run(cases.map(([line]) => line).join("\n"));
+  assert.deepEqual(sentItems(f.requests).sort(), cases.map(([, sent]) => sent).sort());
 });
 
 for (const [name, kind, terminated] of [

@@ -136,12 +136,20 @@ The built-in filter recognises known formats only:
 - Prefixed API keys: OpenAI and Anthropic `sk-proj-`, `sk-svcacct-`, `sk-admin-`, `sk-None-` and `sk-ant-`, and any other `sk-` key of 20 or more characters with a capital letter and a digit, Stripe `sk_live_`/`sk_test_`, GitHub `ghp_`/`gho_`/`ghs_`/`ghu_`/`ghr_`/`github_pat_`, GitLab `glpat-`, npm `npm_`, Slack `xoxb-`/`xoxp-`/`xoxa-` and similar, AWS `AKIA`/`ASIA`, Google `AIza`
 - `Bearer` tokens and `Authorization` header values
 - Credentials in URLs and email addresses
-- The value in pairs whose key contains password, passwd, pwd, secret, token, apikey or key as a whole segment (split by `_`, `-` or a case change, so `SECRET_KEY_BASE`, `apiKey` and `password_confirmation` count and `tokens` or `monkey` do not):
-  - Config form, `KEY=value` with no spaces around `=` (dotenv, shell, INI, `--token=...`): the whole value, up to whitespace, the end of the line, or a closing quote, bracket or brace
-  - Code form, `key = value` with spaces, a comparison (`==`, `===`, `!=`, `!==`), `:=` or `=>`: only a quoted string literal, so names, calls and `await` expressions pass
-  - After `:`: a quoted string literal, or a bare value of 12 or more characters with a digit, so type annotations such as `token: string` pass
+- The value in pairs whose key contains password, passwd, pwd, secret, token, apikey or key as a whole segment (split by `_`, `-` or a case change, so `SECRET_KEY_BASE`, `apiKey`, `DBPassword` and `password_confirmation` count and `tokens` or `monkey` do not), after `=`, `:`, `:=`, `=>` or a comparison, whatever the spacing:
+  - A quoted value is always redacted.
+  - A bare value is redacted unless it is plainly code: an identifier with no digits, a `$VAR` or `${VAR}` reference, member access or indexing such as `os.environ['KEY']`, or a call.
+    So `password = hunter2`, `aws_secret_access_key = wJal...` and `--token=abc123` are redacted, while `password=pw`, `token: string` and `api_key = get_key()` pass.
+  - A bare value ends at whitespace, a comma, or a quote or bracket that closes one opened earlier on the line; a stray quote or bracket stays inside it.
 
 A secret in no known format that is not on your never-send list is sent as written; add such values to the list, and choose input deliberately.
+
+Known limits:
+
+- A secret made only of letters, with no digits or punctuation, looks like an identifier and is sent, for example `password = hunter`.
+- A secret under a key that names no secret word, such as `DB_PASS=...`, or with no `=` or `:` between key and value, such as `--password hunter2`, is sent.
+- A number under a secret-named key is redacted, so `tokenCount = 5` loses its value.
+
 Output contains the original local lines, not redacted replacements.
 
 Before sending, stderr shows **about** the estimated cost, the per-search cap, the rolling 24-hour cap and the remaining allowance.
