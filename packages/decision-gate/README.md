@@ -124,7 +124,7 @@ A section named after a provider, such as `"limits": { "vercel-ai-gateway": { "i
 
 Only one large request, estimated at 32,000 tokens or more, is open at a time; that is fixed, not configured.
 
-The defaults are measured: requests of about 6,100 tokens finished fastest with two to four in flight, and requests of about 50,000 tokens finished as fast one at a time as two or four at once.
+TypeSafe's `in_flight` default is measured: requests of about 6,100 tokens finished fastest with two to four in flight, and requests of about 50,000 tokens finished as fast one at a time as two or four at once.
 A tool that sends requests in parallel should size its pool from `jev.config.limits.inFlight` instead of keeping its own setting, since the gate holds any extra requests until a slot frees.
 
 ## Runs
