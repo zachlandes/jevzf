@@ -37,6 +37,7 @@ The spend ceiling reserves the pinned model's documented 65,536-token request li
 The [TypeSafe model reference](https://docs.typesafe.ai/models) states: "64k tokens per request; 32k tokens for `state` plus the longest question".
 A measured ratio is an estimate, and calling an estimate a ceiling would let a search pass it.
 The rate limiter, whose failure mode is a 429 that pauses and retries, counts request bytes instead, so it does not throttle searches to the spend reservation's worst case.
+The context-length check, whose failure mode is a request the service would reject anyway, refuses by the measured quarter token per byte, since counting bytes as tokens would refuse states the model accepts.
 
 Without a key, the filter sends nothing and exits 2 with the one line that fixes it.
 Passing input through unchanged would look like a search that found everything.

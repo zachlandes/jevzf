@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { PINNED_MODEL, MAX_INPUT_TOKENS, usdFor } from "decision-gate";
+import { PINNED_MODEL, MAX_INPUT_TOKENS, MAX_STATE_QUESTION_TOKENS, usdFor } from "decision-gate";
 import { openJev, searchByMeaning, estimateSearch } from "../lib/core.mjs";
 
 function setup(t, options = {}) {
@@ -158,7 +158,7 @@ test("searches queued behind the account's in-flight slot wait without spending 
     open++; peak = Math.max(peak, open);
     let body = "";
     for await (const chunk of req) body += chunk;
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    await new Promise((resolve) => setTimeout(resolve, 600));
     open--; served++;
     const { questions } = JSON.parse(body);
     res.setHeader("content-type", "application/json");
@@ -170,7 +170,7 @@ test("searches queued behind the account's in-flight slot wait without spending 
   writeFileSync(config, JSON.stringify({ limits: { in_flight: 1 } }));
   const env = { XDG_CONFIG_HOME: dir, XDG_STATE_HOME: dir, XDG_CACHE_HOME: dir, TYPESAFE_API_KEY: "fixture-only", DECISION_GATE_CONFIG: config, DECISION_GATE_ENDPOINT: `http://127.0.0.1:${server.address().port}/v1/systemone` };
   // Two searches at once put two workers on the account's one slot, each with two batches
-  const search = (name) => searchByMeaning({ jev: openJev({ env, maxRetries: 0, timeoutMs: 250 }), query: "search", items: Array.from({ length: 17 }, (_, i) => `${name} line ${i}`), noCache: true });
+  const search = (name) => searchByMeaning({ jev: openJev({ env, maxRetries: 0, timeoutMs: 1000 }), query: "search", items: Array.from({ length: 17 }, (_, i) => `${name} line ${i}`), noCache: true });
   const results = await Promise.all([search("first"), search("second")]);
   assert.equal(peak, 1);
   assert.equal(served, 4);
@@ -197,4 +197,17 @@ test("a 429 on one of four workers under a tight ceiling does not stop the searc
   assert.equal(result.matches.length, 64);
   assert.equal(calls, 5);
   assert.equal(result.tokens, 400);
+});
+
+test("lines that grow when JSON-encoded are packed so each request's state stays under the model's state budget", async (t) => {
+  const f = setup(t, { spend: { perRunUsd: 1, perDayUsd: 1 } });
+  // Each control character encodes as six bytes, so 16 of these fill a 24000-byte batch sixfold
+  const items = Array.from({ length: 16 }, (_, i) => `${"\x01".repeat(1400)}${i}`);
+  const result = await searchByMeaning({ jev: f.jev, query: "control characters", items });
+  assert.equal(result.matches.length, 16);
+  assert.ok(f.sent.length > 1);
+  for (const request of f.sent) {
+    const longest = Math.max(...Object.values(request.questions).map((q) => Buffer.byteLength(JSON.stringify(q))));
+    assert.ok((Buffer.byteLength(JSON.stringify(request.state)) + longest) / 4 <= MAX_STATE_QUESTION_TOKENS);
+  }
 });
