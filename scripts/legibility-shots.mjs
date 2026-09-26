@@ -6,7 +6,7 @@
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, request } from "node:http";
-import os from "node:os";
+import { crc32, deflateSync, inflateSync } from "node:zlib";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
@@ -99,12 +99,56 @@ export function windowOf(pids) {
     for (let i = 0; i < list.count; i++) {
       const w = list.objectAtIndex(i);
       if (!pids.includes(w.objectForKey("kCGWindowOwnerPID").js) || w.objectForKey("kCGWindowLayer").js !== 0) continue;
+      // WezTerm also owns a hidden 1000x1000 window, larger than a small real one; only a drawn,
+      // on-screen window can be the terminal
+      const onscreen = w.objectForKey("kCGWindowIsOnscreen");
+      if (!onscreen || onscreen.js !== true || w.objectForKey("kCGWindowAlpha").js <= 0) continue;
       const b = w.objectForKey("kCGWindowBounds");
+      if (b.objectForKey("Width").js < 100 || b.objectForKey("Height").js < 100) continue;
       const size = b.objectForKey("Width").js * b.objectForKey("Height").js;
       if (size > area) { area = size; best = String(w.objectForKey("kCGWindowNumber").js); }
     }
     best`, "JavaScript");
   return found || null;
+}
+
+// A capture of the wrong or an undrawn window decodes to one repeated byte; a real terminal
+// screenshot holds all 256
+export function blank(file) {
+  const png = readFileSync(file);
+  const parts = [];
+  for (let at = 8; at < png.length;) {
+    const size = png.readUInt32BE(at);
+    if (png.toString("ascii", at + 4, at + 8) === "IDAT") parts.push(png.subarray(at + 8, at + 8 + size));
+    at += 12 + size;
+  }
+  return new Set(inflateSync(Buffer.concat(parts))).size < 16;
+}
+
+// screencapture writes fast, loose compression; the same scanlines at zlib level 9 are about a
+// fifth smaller with identical pixels, which matters for evidence committed to the repo
+function recompress(file) {
+  const png = readFileSync(file);
+  const chunks = [], idat = [];
+  for (let at = 8; at < png.length;) {
+    const size = png.readUInt32BE(at), type = png.toString("ascii", at + 4, at + 8), data = png.subarray(at + 8, at + 8 + size);
+    if (type !== "IDAT") chunks.push([type, data]);
+    else { if (!idat.length) chunks.push(["IDAT", null]); idat.push(data); }
+    at += 12 + size;
+  }
+  const packed = deflateSync(inflateSync(Buffer.concat(idat)), { level: 9 });
+  const out = [png.subarray(0, 8)];
+  for (const [type, original] of chunks) {
+    const data = original ?? packed;
+    const head = Buffer.alloc(8);
+    head.writeUInt32BE(data.length);
+    head.write(type, 4, "ascii");
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(crc32(Buffer.concat([head.subarray(4), data])));
+    out.push(head, data, crc);
+  }
+  const result = Buffer.concat(out);
+  if (result.length < png.length) writeFileSync(file, result);
 }
 
 const post = (sock, body) => new Promise((resolve) => {
@@ -129,7 +173,15 @@ async function main() {
   findFzf(process.env);
   const haveWezterm = spawnSync("wezterm", ["--version"]).status === 0;
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-  const out = process.argv.slice(2).find((arg) => !arg.startsWith("--")) ?? path.join(os.homedir(), "Desktop", `jevzf-legibility-${stamp}`);
+  const args = process.argv.slice(2);
+  const onlyAt = args.indexOf("--only");
+  const only = onlyAt >= 0 ? new Set((args[onlyAt + 1] ?? "").split(",").filter(Boolean)) : null;
+  if (onlyAt >= 0) args.splice(onlyAt, 2);
+  const labels = CASES.map((spec) => `${spec.term}-${spec.name}`);
+  const unknown = only && [...only].filter((name) => !labels.includes(name));
+  if (unknown?.length || only?.size === 0) throw new Error(`--only takes case names separated by commas: ${labels.join(", ")}`);
+  // Inside the repo's gitignored .tmp, where agents can read the shots; ~/Desktop is closed to them
+  const out = args.find((arg) => !arg.startsWith("--")) ?? path.join(REPO, ".tmp", "legibility", stamp);
   mkdirSync(out, { recursive: true });
   // Short paths, since the picker's socket path must stay under macOS's 104-byte limit
   const work = mkdtempSync("/tmp/jzshots.");
@@ -150,6 +202,7 @@ async function main() {
   try {
     for (const [index, spec] of CASES.entries()) {
       const label = `${spec.term}-${spec.name}`;
+      if (only && !only.has(label)) continue;
       if (spec.term === "wezterm" && !haveWezterm && !CHECK) { skipped.push(`${label} (wezterm not found)`); continue; }
       process.stdout.write(`${String(index + 1).padStart(2)}/${CASES.length} ${label} `);
       const dir = path.join(work, String(index));
@@ -164,7 +217,7 @@ async function main() {
       };
       const lines = Object.entries(env).map(([name, value]) => value === null ? `unset ${name}` : `export ${name}='${String(value).replaceAll("'", "'\\''")}'`);
       writeFileSync(path.join(dir, "run.sh"), `${lines.join("\n")}\nprintf '\\033[3J\\033[H\\033[2J'\n'${process.execPath}' '${CLI}' < '${path.join(work, "input")}' > /dev/null\n`);
-      let windowId, close;
+      let windowId, close, pids;
       const tmux = (...args) => execFileSync("tmux", ["-L", `jzshots-${process.pid}`, ...args], { encoding: "utf8" });
       if (CHECK) {
         tmux("new-session", "-d", "-x", String(spec.cols), "-y", String(spec.rows), "-s", String(index), `sh '${path.join(dir, "run.sh")}'`);
@@ -183,10 +236,10 @@ async function main() {
         const klass = `jevzf-shots-${index}-${process.pid}`;
         const gui = spawn("wezterm", ["--config-file", path.join(dir, "wezterm.lua"), "start", "--always-new-process", "--class", klass, "--", "sh", path.join(dir, "run.sh")], { detached: true, stdio: "ignore" });
         gui.unref();
-        const pids = () => spawnSync("pgrep", ["-f", klass], { encoding: "utf8" }).stdout.trim().split("\n").filter(Boolean);
+        pids = () => spawnSync("pgrep", ["-f", klass], { encoding: "utf8" }).stdout.trim().split("\n").filter(Boolean);
         close = () => { for (const pid of pids()) { try { process.kill(Number(pid)); } catch { /* exited */ } } };
         open.add(close);
-        windowId = await until(() => { const p = pids(); return p.length && windowOf(p); }, "the WezTerm window");
+        windowId = await until(() => { const p = pids(); return p.length && windowOf(p); }, "the WezTerm window drawn on screen");
       } else {
         const id = osa(`tell application "Terminal"
           set t to do script "exec sh '${path.join(dir, "run.sh")}'"
@@ -223,7 +276,15 @@ async function main() {
         await sleep(900);
         const file = path.join(out, `${label}-${name}.png`);
         if (CHECK) writeFileSync(file.replace(/\.png$/, ".txt"), tmux("capture-pane", "-p", "-t", String(index)));
-        else execFileSync("screencapture", ["-x", "-o", "-l", windowId, file]);
+        else {
+          for (let attempt = 1; ; attempt++) {
+            execFileSync("screencapture", ["-x", "-o", "-l", windowId, file]);
+            if (!blank(file)) { recompress(file); break; }
+            if (attempt === 3) { rmSync(file); throw new Error(`${label}-${name} captured blank three times`); }
+            await sleep(1000);
+            if (spec.term === "wezterm") windowId = await until(() => windowOf(pids()), "the WezTerm window");
+          }
+        }
         written.push(file);
         process.stdout.write(`${name} `);
       }
@@ -250,7 +311,8 @@ async function main() {
   say(out);
 }
 
-main().catch((error) => {
+// Only when run as a script: importing this file for its helpers must never open windows
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) main().catch((error) => {
   process.stderr.write(`legibility-shots: ${error.message}\n`);
   if (/could not create image/.test(error.message)) process.stderr.write("Allow Screen Recording for the terminal running this script (System Settings > Privacy & Security), then run it again.\n");
   process.exitCode = 1;
