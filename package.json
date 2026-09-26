@@ -19,7 +19,7 @@
   },
   "scripts": {
     "test": "node --test",
-    "lint": "node --check bin/jevzf.mjs && find lib test -name '*.mjs' -exec node --check {} \\;"
+    "lint": "node --check bin/jevzf.mjs && find lib test scripts -name '*.mjs' -exec node --check {} \\;"
   },
   "license": "Apache-2.0",
   "repository": {

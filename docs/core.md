@@ -81,6 +81,8 @@ If the ceiling cannot cover even one request, so nothing was judged or sent, the
 Ordinary service failures return successful judgments when any exist, plus a failed-item count; if every request fails, the search throws.
 A rejected key (HTTP 401 or 403) stops the whole search at once and throws a `ServiceError`, even after earlier batches were judged.
 A failed privacy check stops before sending any batch.
+`MAX_INPUT_BYTES` is the input limit, 10 MiB of UTF-8 across all items; a larger input throws a `SearchError` before anything is sent.
+Callers that read their own input can check it first, to refuse without reading everything.
 `estimateSearch({ jev, query, items, capUsd, noCache })` prepares the same requests but needs no key and sends nothing.
 It reports estimated USD for the lines not already in the answer cache, how many lines are cached, configured ceilings and how many lines the never-send rules change.
 The estimate is not a reservation or a promise about retries.
