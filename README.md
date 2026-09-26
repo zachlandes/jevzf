@@ -131,7 +131,7 @@ Built-in secret patterns and the configured rules redact the query, each line an
 A forbidden-pattern check over decoded strings and the serialized body refuses the whole search before any request if a listed forbidden value survives.
 The built-in filter recognises known formats only:
 
-- PEM and PGP private-key blocks, including every line of a block piped in as separate lines; each line is judged by the key text at its end, so `rg -n` or `rg -C` paths (spaces included), `git diff` markers and `cat -n` numbers are kept and the key text is redacted; a block starts at a line ending with the BEGIN marker, unless a quote or other code delimiter comes just before it, and runs to a line ending with the END marker, or to the first line that is not key body when the key was cut off
+- PEM and PGP private-key blocks, including every line of a block piped in as separate lines; each line is judged by the key text at its end, so `rg -n` or `rg -C` paths (spaces included), `git diff` markers and `cat -n` numbers are kept and the key text is redacted; a block starts at a line whose last text is the BEGIN marker, so a multi-line quoted value such as a `.env` `PRIVATE_KEY="` or a triple-quoted or template string is covered while a one-line string constant holding only the marker is not, and runs to a line ending with the END marker, perhaps followed by the closing quote, or to the first line that is not key body when the key was cut off; a key held on one line with escaped `\n` newlines is redacted from BEGIN through END
 - JWTs
 - Prefixed API keys: OpenAI and Anthropic `sk-proj-`, `sk-svcacct-`, `sk-admin-`, `sk-None-` and `sk-ant-`, and any other `sk-` key of 20 or more characters with a capital letter and a digit, Stripe `sk_live_`/`sk_test_`, GitHub `ghp_`/`gho_`/`ghs_`/`ghu_`/`ghr_`/`github_pat_`, GitLab `glpat-`, npm `npm_`, Slack `xoxb-`/`xoxp-`/`xoxa-` and similar, AWS `AKIA`/`ASIA`, Google `AIza`
 - `Bearer` tokens and `Authorization` header values
@@ -149,6 +149,7 @@ Known limits:
 - A secret made only of letters, with no digits or punctuation, looks like an identifier and is sent, for example `password = hunter`.
 - A secret under a key that names no secret word, such as `DB_PASS=...`, or with no `=` or `:` between key and value, such as `--password hunter2`, is sent.
 - A number under a secret-named key is redacted, so `tokenCount = 5` loses its value.
+- A private key whose body lines are each quoted or concatenated, such as `"MIIE...\n" +`, is not recognised line by line, so its body is sent.
 - A typed declaration with a quoted default is sent, because the type name is taken as the value, for example `password: str = "hunter2secret"`.
 - A value containing `(` is treated as a call and sent, for example `DB_PASSWORD=K9#m(Lq2!x`.
 - A dotted value is treated as member access and sent, for example `password=Summer2024.Winter`.

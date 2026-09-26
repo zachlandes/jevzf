@@ -554,6 +554,38 @@ for (const [name, kind, terminated, prefix] of [
   });
 }
 
+for (const [name, open, close, prefix] of [
+  ["a multi-line .env value", 'PRIVATE_KEY="', '"', () => ""],
+  ["a multi-line .env value in rg -n output", 'PRIVATE_KEY="', '"', (i) => `.env:${i + 4}:`],
+  ["a Python triple-quoted string", 'SIGNING_KEY = """', '"""', () => ""],
+  ["a JS template literal", "const key = `", "`", () => ""],
+  ["a Go raw string", "var testKey = `", "`", () => ""]
+]) {
+  test(`a private key in ${name} sends none of its key text`, async (t) => {
+    const f = await fixture(t);
+    const body = Array.from({ length: 30 }, (_, i) => `${String.fromCharCode(65 + (i % 26))}${"MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC".slice(0, 40)}${i}`);
+    const key = [`${open}-----BEGIN RSA PRIVATE KEY-----`, ...body, "AQAB==", `-----END RSA PRIVATE KEY-----${close}`];
+    const filler = Array.from({ length: 20 }, (_, i) => `login ${i}`);
+    await f.run([...filler.slice(0, 10), ...key.map((line, i) => prefix(i) + line), ...filler.slice(10)].join("\n"));
+    const sent = sentItems(f.requests);
+    const opening = sent.filter((item) => item.startsWith(prefix(0) + open.split(/\s|=/)[0]));
+    assert.equal(opening.length, 1);
+    assert.ok(!opening[0].includes("BEGIN"), opening[0]);
+    const rest = key.slice(1).map((_, i) => `${prefix(i + 1)}[private key]`);
+    assert.deepEqual(sent.filter((item) => !item.startsWith("login") && item !== opening[0]).sort(), rest.sort());
+    assert.deepEqual(sent.filter((item) => item.startsWith("login")).sort(), [...filler].sort());
+    for (const line of body) assert.ok(f.requests.every((request) => !request.body.includes(line)), line);
+  });
+}
+
+test("a private key held on one line with escaped newlines is redacted from BEGIN through END", async (t) => {
+  const f = await fixture(t);
+  const body = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC";
+  await f.run(`login {"pem": "-----BEGIN PRIVATE KEY-----\\n${body}\\nAQAB==\\n-----END PRIVATE KEY-----\\n", "user": "zed"}`);
+  assert.deepEqual(sentItems(f.requests), ['login {"pem": "[private key]\\n", "user": "zed"}']);
+  assert.ok(f.requests.every((request) => !request.body.includes(body)));
+});
+
 test("a private-key marker held in a string constant does not blank the lines after it", async (t) => {
   const f = await fixture(t);
   const lines = [
