@@ -221,7 +221,7 @@ Meaning search itself stays inside jevzf and has no public import path.
 npm ci --ignore-scripts
 npm test
 npm run lint
-npm pack --dry-run
+npm pack --dry-run --workspaces --include-workspace-root
 ```
 
 The repository is an npm workspace: jevzf at the root and decision-gate in `packages/decision-gate`, and `npm test` runs both.
