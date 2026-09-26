@@ -56,7 +56,7 @@ This test passed locally with fzf 0.73.1; it skips rather than pretends to test 
 `test/picker.test.mjs` drives the real picker through stock fzf in a PTY, against the loopback stand-in, using `test/pty-driver.py`.
 It picks a line in fuzzy mode; switches to meaning with `alt-m`, types, presses Enter and picks the top ranked line; repeats the search and sees `all from the cache` with no second request; keeps NUL-separated multiline records whole with `--read0`; opens without a key, shows `export TYPESAFE_API_KEY` in meaning mode and sends nothing; and leaves meaning mode mid-search, after which the search's spend record closes at what its one attempt may have cost.
 These pass with the Homebrew fzf 0.73.1 and with the fzf 0.66.0 release binary first on `PATH`; the same tests refuse a fake fzf reporting 0.65.2 with the install hint.
-Unit tests fit the header to 60, 76 and 120 columns, fall back to ASCII glyphs without a UTF-8 locale, and mark the mode in brackets under `NO_COLOR`.
+Unit tests fit the header to 40, 60, 76 and 120 columns, fall back to ASCII glyphs without a UTF-8 locale, and mark the mode in brackets under `NO_COLOR`.
 
 ## Live Jev check
 
