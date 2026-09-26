@@ -2,7 +2,7 @@
 
 jevzf is Jev-powered search for fzf: pipe lines in, say what you mean, get the matching lines back.
 Stock fzf owns interaction; the shell owns collecting candidates.
-The filter and the fzf binding recipe are the command's whole surface in this release.
+This change carries the filter and the fzf binding recipe; the fzf picker, with its fuzzy, exact and meaning modes, arrives in the next pull request, before the first npm release.
 
 `jevzf/core` is the one owner of calling Jev, for this command and for other tools that adopt it.
 It holds the key handling, the never-send check, the spend ceilings, the answer cache and the rate limiter, because each of those is only a guarantee if no caller can go around it.

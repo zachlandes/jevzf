@@ -35,11 +35,12 @@ async function fixture(t, respond) {
   const key = path.join(dir, "key"), redaction = path.join(dir, "redaction.json"), config = path.join(dir, "config.json");
   writeFileSync(key, "test-credential", { mode: 0o600 });
   writeFileSync(redaction, JSON.stringify({ rules: [["private", "(?i)Private Person", "[person]"]], forbidden: ["(?i)Private Person"] }), { mode: 0o600 });
-  writeFileSync(config, "{}");
+  const configure = (settings) => writeFileSync(config, JSON.stringify({ key_file: key, ...settings }));
+  configure({});
   const env = {
     PATH: process.env.PATH, HOME: dir, XDG_CONFIG_HOME: dir, XDG_CACHE_HOME: dir,
     JEVZF_CONFIG: config, JEVZF_STATE_DIR: path.join(dir, "state"),
-    JEVZF_KEY_FILE: key, JEVZF_NEVER_SEND_FILE: redaction,
+    JEVZF_NEVER_SEND_FILE: redaction,
     JEVZF_JEV_ENDPOINT: `http://127.0.0.1:${server.address().port}/v1/systemone`
   };
   t.after(async () => {
@@ -59,7 +60,7 @@ async function fixture(t, respond) {
   });
   const ledgerFile = path.join(dir, "state/spend", `${fingerprint}.jsonl`);
   const ledger = () => readFileSync(ledgerFile, "utf8").trim().split("\n").map(JSON.parse);
-  return { dir, requests, run, env, config, key, redaction, ledger, ledgerFile };
+  return { dir, requests, run, env, config, configure, key, redaction, ledger, ledgerFile };
 }
 
 test("every network attempt has its durable reservation before the loopback server receives it", async (t) => {
@@ -104,7 +105,7 @@ test("decoded forbidden text is caught even when JSON would escape it", async (t
 
 test("daily cap persists across processes while cached results remain free", async (t) => {
   const f = await fixture(t);
-  writeFileSync(f.config, JSON.stringify({ spend: { per_day_usd: reservation + usdFor(100) / 2 } }));
+  f.configure({ spend: { per_day_usd: reservation + usdFor(100) / 2 } });
   assert.equal((await f.run("login\n")).code, 0);
   const capped = await f.run("login\n", "different query");
   assert.equal(capped.code, 2);
@@ -113,9 +114,32 @@ test("daily cap persists across processes while cached results remain free", asy
   assert.equal(f.requests.length, 1);
 });
 
+test("a cached repeat estimates nothing to send and does not warn about its ceiling", async (t) => {
+  const f = await fixture(t);
+  f.configure({ spend: { per_search_usd: reservation } });
+  assert.match((await f.run("login\n")).stderr, /this search may need more than its USD [0-9.]+ ceiling/);
+  const repeat = await f.run("login\n");
+  assert.equal(repeat.code, 0);
+  assert.equal(repeat.stderr, "");
+  assert.match((await f.run("login\nreset\n", "", {}, ["--estimate", "authentication"])).stdout, /^2 lines · 1 cached · about USD 0\.0000\d+ · /);
+  assert.match((await f.run("login\n", "", {}, ["--estimate", "authentication"])).stdout, /^1 lines · 1 cached · about USD 0\.00 · /);
+  assert.match((await f.run("login\n", "", {}, ["--estimate", "--no-cache", "authentication"])).stdout, /^1 lines · 0 cached · /);
+  assert.equal(f.requests.length, 1);
+});
+
+test("key sources are the config key_file or TYPESAFE_API_KEY, never a JEVZF_KEY_FILE variable", async (t) => {
+  const f = await fixture(t);
+  writeFileSync(f.config, "{}");
+  const ignored = await f.run("login\n", "authentication", { JEVZF_KEY_FILE: f.key });
+  assert.equal(ignored.code, 2);
+  assert.match(ignored.stderr, /needs a TypeSafe API key/);
+  assert.equal((await f.run("login\n", "authentication", { TYPESAFE_API_KEY: "test-credential" })).code, 0);
+  assert.equal(f.requests.length, 1);
+});
+
 test("simultaneous CLI processes cannot allocate the same daily allowance", async (t) => {
   const f = await fixture(t, async () => { await new Promise((resolve) => setTimeout(resolve, 150)); });
-  writeFileSync(f.config, JSON.stringify({ spend: { per_day_usd: reservation, per_search_usd: reservation } }));
+  f.configure({ spend: { per_day_usd: reservation, per_search_usd: reservation } });
   const results = await Promise.all([f.run("login\n", "query one"), f.run("login\n", "query two")]);
   assert.deepEqual(results.map((r) => r.code).sort(), [0, 2]);
   assert.equal(f.requests.length, 1);
@@ -123,7 +147,7 @@ test("simultaneous CLI processes cannot allocate the same daily allowance", asyn
 
 test("uncertain failures consume their reservation and retries cannot exceed the cap", async (t) => {
   const f = await fixture(t, (_req, res) => { res.writeHead(503); res.end("private provider error"); return true; });
-  writeFileSync(f.config, JSON.stringify({ spend: { per_search_usd: reservation, per_day_usd: reservation } }));
+  f.configure({ spend: { per_search_usd: reservation, per_day_usd: reservation } });
   const result = await f.run("login\n");
   assert.equal(result.code, 2);
   assert.equal(f.requests.length, 1);
@@ -137,7 +161,7 @@ test("a process killed after sending leaves its reservation and does not retain 
   let arrived;
   const received = new Promise((resolve) => { arrived = resolve; });
   const f = await fixture(t, () => { arrived(); return true; });
-  writeFileSync(f.config, JSON.stringify({ spend: { per_day_usd: reservation } }));
+  f.configure({ spend: { per_day_usd: reservation } });
   const child = spawn(process.execPath, [cli, "query"], { env: f.env, stdio: ["pipe", "ignore", "ignore"] });
   child.stdin.end("login\n");
   await received;
@@ -198,9 +222,9 @@ test("invalid config, missing privacy rules, empty key and oversized input send 
   assert.equal((await f.run("login\n", "query", { JEVZF_NEVER_SEND_FILE: path.join(f.dir, "missing") })).code, 2);
   assert.equal((await f.run("login\n", "x".repeat(401))).code, 2);
   assert.equal((await f.run("a".repeat(24001))).code, 2);
-  writeFileSync(f.config, JSON.stringify({ spend: { per_day_usd: -1 } }));
+  f.configure({ spend: { per_day_usd: -1 } });
   assert.equal((await f.run("login\n")).code, 2);
-  writeFileSync(f.config, "{}");
+  f.configure({});
   writeFileSync(f.key, "");
   assert.equal((await f.run("login\n")).code, 2);
   assert.equal(f.requests.length, 0);
@@ -233,7 +257,7 @@ test("help and version ignore invalid config; no matches return 1", async (t) =>
   writeFileSync(f.config, "not json");
   assert.match((await f.run("", "", {}, ["--help"])).stdout, /Usage:/);
   assert.equal((await f.run("", "", {}, ["--version"])).stdout, "0.1.0\n");
-  writeFileSync(f.config, "{}");
+  f.configure({});
   assert.equal((await f.run("gardening\n")).code, 1);
 });
 
@@ -529,7 +553,7 @@ test("a private-key marker held in a string constant does not blank the lines af
 test("a large input that hits today's ceiling mid-search prints what it found and names the ceiling", async (t) => {
   const f = await fixture(t);
   // Room for the first few requests only, as when earlier searches spent most of today's allowance
-  writeFileSync(f.config, JSON.stringify({ spend: { per_day_usd: reservation + 3 * usdFor(100) } }));
+  f.configure({ spend: { per_day_usd: reservation + 3 * usdFor(100) } });
   const lines = Array.from({ length: 200 }, (_, i) => i % 20 === 0 ? `login ${i}` : `garden ${i}`);
   const result = await f.run(`${lines.join("\n")}\n`);
   assert.equal(result.code, 0);

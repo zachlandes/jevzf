@@ -23,7 +23,8 @@ console.log(result.lines);
 `openJev({ tool, key, neverSend, spend, env, notice })` opens a generic caller.
 `tool` defaults to `jevzf` and identifies the caller's spend records, not a different service.
 `notice` defaults to a no-op.
-`spend` accepts `perSearchUsd` and `perDayUsd`, defaulting to USD 0.02 and USD 0.20.
+`spend` accepts `perSearchUsd` and `perDayUsd`, defaulting to the config's USD 0.02 and USD 0.20.
+The config's daily ceiling covers the key across every tool that uses it; a caller's `perDayUsd` can only lower what that tool spends, never add to the key's.
 
 Key precedence is an explicit `key: { file }`, `{ env }` or `{ value }`, then `TYPESAFE_API_KEY`, then the config's `key_file`.
 Exactly one explicit source is allowed, and no other credential location is guessed.
@@ -51,8 +52,7 @@ No file is required.
 
 `JEVZF_PER_SEARCH_USD`, `JEVZF_PER_DAY_USD`, `JEVZF_RPM` and `JEVZF_TPS` override the corresponding config values.
 The effective rate limits multiply the configured account limits by `share`.
-Every tool reads the same limits section; explicit caller spend settings remain the caller's own.
-Legacy v0 config and environment aliases remain accepted.
+Every tool reads the same limits section and daily ceiling; an explicit caller per-search ceiling remains the caller's own.
 
 ## Search and estimates
 
@@ -80,8 +80,8 @@ If the ceiling cannot cover even one request, so nothing was judged or sent, the
 `run.summary().ceiling` is `"day"` when what is left of today bounds the run and `"search"` otherwise.
 Ordinary service failures return successful judgments when any exist, plus a failed-item count; if every request fails, the search throws.
 A failed privacy check stops before sending any batch.
-`estimateSearch({ jev, query, items, capUsd })` prepares the same requests but needs no key and sends nothing.
-It reports estimated USD, configured ceilings and how many lines the never-send rules change.
+`estimateSearch({ jev, query, items, capUsd, noCache })` prepares the same requests but needs no key and sends nothing.
+It reports estimated USD for the lines not already in the answer cache, how many lines are cached, configured ceilings and how many lines the never-send rules change.
 The estimate is not a reservation or a promise about retries.
 
 ## Raw SDK requests
@@ -131,6 +131,7 @@ If the limiter's directory cannot be written, it warns once per limiter and uses
 This does not disable the daily ceiling: unwritable spend state still refuses paid requests.
 
 Spend records live under `$XDG_STATE_HOME/jevzf/spend/<key-fingerprint>.jsonl` and contain tool, time, hold and cost, never text.
+The daily ceiling counts every tool's records on the key, so tools sharing a key cannot together pass it.
 A run reserves its search allowance under a short filesystem lock so concurrent runs cannot allocate the same daily balance.
 The daily boundary is UTC midnight.
 Unused holds expire after ten minutes; booked attempts remain charged after a crash.

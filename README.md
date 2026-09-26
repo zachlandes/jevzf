@@ -64,7 +64,7 @@ cmd | jevzf [options] QUERY...
 - `--max-cost USD` lowers this search's ceiling; it never raises it.
 - `--no-cache` neither reads nor writes cached answers.
 - `--read0` reads and writes NUL-separated records, as `fzf --read0` and `xargs -0` do.
-- `--estimate` counts lines, estimates the cost, names the ceilings and says how many lines the secret filter would change.
+- `--estimate` counts lines and how many are already cached, estimates the cost of the rest, names the ceilings and says how many lines the secret filter would change.
 - `--help` and `--version` need no key.
 - `--` ends the options, for a query that begins with a dash.
 
@@ -96,7 +96,8 @@ The model is pinned to `jev-1.13.0`; [its price and limits](https://docs.typesaf
 
 The daily ceiling holds across processes: a search writes a hold for its ceiling before sending, so two searches at once cannot both spend the same allowance.
 Before sending, stderr warns when a search may need more than its ceiling or what is left today, since each request first reserves its worst case.
-Spend is tracked per key and per tool.
+The cost estimate and this warning count only lines not already cached, so repeating a search warns about nothing.
+The daily ceiling covers the key: every tool that uses the same key and config counts against it together.
 A search interrupted by Ctrl-C, ended by fzf's SIGTERM or cut off by a closed terminal closes its hold at what it may have spent; after kill -9 the hold is released after ten minutes, and anything it may have spent stays counted.
 None of these leaves a lock behind: local state is locked only for the moment of each file update, never across a request, and a lock whose owner process is gone is reclaimed by the next search.
 These are local ceilings, not account-wide billing controls.

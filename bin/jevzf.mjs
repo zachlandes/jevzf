@@ -104,19 +104,19 @@ async function main() {
     records.push({ text: bytes.toString("utf8"), bytes, terminated: end >= 0 });
     start = end < 0 ? input.length : end + 1;
   }
-  const search = { jev, items: records, query: opts.query, capUsd: opts["max-cost"] };
+  const search = { jev, items: records, query: opts.query, capUsd: opts["max-cost"], noCache: opts["no-cache"] };
   const estimate = estimateSearch(search);
   if (opts.estimate) {
-    process.stdout.write(`${count(estimate.lines)} lines · about ${usd(estimate.estimatedUsd, 2)} · never more than ${usd(estimate.perSearchUsd)} per search · ${usd(estimate.perDayUsd)} per day · ${count(estimate.changed)} lines changed by the never-send check\n`);
+    process.stdout.write(`${count(estimate.lines)} lines · ${count(estimate.cachedLines)} cached · about ${usd(estimate.estimatedUsd, 2)} · never more than ${usd(estimate.perSearchUsd)} per search · ${usd(estimate.perDayUsd)} per day · ${count(estimate.changed)} lines changed by the never-send check\n`);
     return;
   }
   const remaining = await jev.remaining();
   if (process.stderr.isTTY) notice(`about ${usd(estimate.estimatedUsd, 2)} · never more than ${usd(estimate.perSearchUsd)} per search · ${usd(remaining)} left today`);
   // Every request first reserves its worst case, so the last one needs a full reservation of room.
   // Said whether or not stderr is a terminal, since it explains output that would otherwise look short
-  if (estimate.estimatedUsd + usdFor(MAX_INPUT_TOKENS) > Math.min(estimate.perSearchUsd, remaining)) notice(`this search may need more than ${remaining < estimate.perSearchUsd ? `the ${usd(remaining)} left today` : `its ${usd(estimate.perSearchUsd)} ceiling`}; lines past it go unjudged, in input order`);
+  if (estimate.cachedLines < estimate.lines && estimate.estimatedUsd + usdFor(MAX_INPUT_TOKENS) > Math.min(estimate.perSearchUsd, remaining)) notice(`this search may need more than ${remaining < estimate.perSearchUsd ? `the ${usd(remaining)} left today` : `its ${usd(estimate.perSearchUsd)} ceiling`}; lines past it go unjudged, in input order`);
   const start = performance.now();
-  const result = await searchByMeaning({ ...search, floor: opts.floor, closest: opts.closest, noCache: opts["no-cache"], signal: controller.signal });
+  const result = await searchByMeaning({ ...search, floor: opts.floor, closest: opts.closest, signal: controller.signal });
   for (const [index, match] of result.matches.entries()) {
     if (opts.scores) process.stdout.write(`${match.p.toFixed(2)}\t`);
     process.stdout.write(match.item.bytes);

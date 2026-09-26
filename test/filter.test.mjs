@@ -58,7 +58,7 @@ test("missing-key filter fails while estimate sends nothing and needs no key", a
   assert.match(result.stderr, /TYPESAFE_API_KEY/);
   const estimate = await f.run("login\n", ["--estimate", "query"], noKey);
   assert.equal(estimate.code, 0);
-  assert.match(estimate.stdout.toString(), /1 lines · about USD/);
+  assert.match(estimate.stdout.toString(), /1 lines · 0 cached · about USD/);
   assert.equal(f.requests.length, 0);
 });
 
