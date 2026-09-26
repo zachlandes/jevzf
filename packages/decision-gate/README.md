@@ -29,12 +29,11 @@ try {
 
 ## Opening the gate
 
-`openJev({ tool, key, account, neverSend, spend, env, notice, fetch })` opens a caller.
+`openJev({ tool, key, neverSend, spend, env, notice, fetch })` opens a caller.
 `tool` is required: a short identifier such as `herdr-find` that tags the caller's spend records, not a different service.
 `notice` receives one-line warnings and defaults to a no-op.
 `spend` accepts `perRunUsd` and `perDayUsd`, defaulting to the config's USD 0.02 and USD 0.20.
 The config's daily ceiling covers the key across every tool that uses it; a caller's `perDayUsd` can only lower what that tool spends, never add to the key's.
-`account` names the TypeSafe account the key belongs to, for a tool whose key is not on the config's account (see "Accounts and rate limits").
 `fetch` replaces the network for tests; the destination is still checked.
 
 The returned object holds `status()`, `config`, `redactor`, `remaining()`, `cache()` and `run()`.
@@ -57,7 +56,6 @@ No file is required.
 
 ```json
 {
-  "account": "default",
   "key_file": "~/.config/decision-gate/key",
   "never_send_file": "~/.config/decision-gate/never-send.json",
   "spend": { "per_run_usd": 0.02, "per_day_usd": 0.2 },
@@ -65,14 +63,12 @@ No file is required.
     "requests_per_minute": 1200,
     "tokens_per_second": 250000,
     "share": 0.8,
-    "in_flight": 4,
-    "large_in_flight": 1,
-    "large_request_tokens": 32000
+    "in_flight": 4
   }
 }
 ```
 
-`DECISION_GATE_ACCOUNT`, `DECISION_GATE_PER_RUN_USD`, `DECISION_GATE_PER_DAY_USD`, `DECISION_GATE_RPM`, `DECISION_GATE_TPS`, `DECISION_GATE_IN_FLIGHT` and `DECISION_GATE_NEVER_SEND_FILE` override the corresponding config values.
+`DECISION_GATE_PER_RUN_USD`, `DECISION_GATE_PER_DAY_USD`, `DECISION_GATE_RPM`, `DECISION_GATE_TPS`, `DECISION_GATE_IN_FLIGHT` and `DECISION_GATE_NEVER_SEND_FILE` override the corresponding config values.
 Relative paths in the file resolve beside it, and `~/` works.
 Every tool reads the same limits section and daily ceiling; an explicit caller per-run ceiling remains the caller's own.
 
@@ -82,21 +78,18 @@ TypeSafe counts rate limits per account, not per key.
 A second key on the same account adds no capacity: measured on one account, small requests got about 47,000-56,000 tokens a second on one key and 46,000 combined on two, and large ones about 121,000 on one and 127,000 split across two.
 A key per tool is for separate spend records and revocation, not for throughput.
 
-A key does not reveal its account, so the gate assumes every key on this machine belongs to one account, named `default`.
-Every key on an account shares one rate window, one 429 pause and one set of in-flight requests, across every tool and process on the machine.
-Set `account` in the config or `DECISION_GATE_ACCOUNT` to name it, and pass `openJev({ account })` for a key that belongs to a different account, so it gets a window of its own.
-The caller's `account` wins over the environment, which wins over the config.
-An account name is a short identifier: letters, digits, `.`, `_` and `-`.
+A key does not reveal its account, so the gate assumes every key on this machine belongs to one account.
+Every key shares that account's one rate window, one 429 pause and one set of in-flight requests, across every tool and process on the machine.
 
 `limits` describes the account's ceiling:
 
 - `requests_per_minute` and `tokens_per_second` are TypeSafe's published limits for the pinned model; the gate keeps to `share` of both.
 - `in_flight` is how many requests the account may have open at once, 4 by default.
-- `large_in_flight` is how many of those may be large, 1 by default; a request is large when it is estimated at `large_request_tokens` (32,000) or more.
+
+Only one large request, estimated at 32,000 tokens or more, is open at a time; that is fixed, not configured.
 
 The defaults are measured: requests of about 6,100 tokens finished fastest with two to four in flight, and requests of about 50,000 tokens finished as fast one at a time as two or four at once.
 A tool that sends requests in parallel should size its pool from `jev.config.limits.inFlight` instead of keeping its own setting, since the gate holds any extra requests until a slot frees.
-`jev.config.account` names the account the caller's requests count against.
 
 ## Runs
 
@@ -165,10 +158,9 @@ State lives under `$XDG_STATE_HOME/decision-gate`, normally `~/.local/state/deci
 | --- | --- |
 | `cache-key` | The answer cache's private hash key |
 | `spend/typesafe/<key-fingerprint>.jsonl` | The cost ledger: tool, time, hold and cost of each run, never text |
-| `limits/typesafe/accounts/<account>.json` | The account's shared rate window, pause and in-flight requests |
+| `limits/typesafe/accounts/default.json` | The account's shared rate window, pause and in-flight requests |
 
 The fingerprint is the first 16 SHA-256 hex characters, never the key.
-Earlier versions kept a rate window per key fingerprint in `limits/typesafe/<key-fingerprint>.json`; those files hold at most a minute of history, so the gate deletes them when it first opens an account's window.
 Rate requests use a rolling minute window; tokens use a rolling second window, counting each request at its size in bytes, up to the request limit.
 Measured usage is about a quarter token per byte, so this overcounts; the spend ceiling, not the limiter, is the guaranteed bound.
 The defaults enforce 960 requests a minute and 200,000 reserved tokens a second.

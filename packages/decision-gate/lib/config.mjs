@@ -7,13 +7,6 @@ import { ConfigError } from "./errors.mjs";
 const NAME = "decision-gate";
 export const expandHome = (value) => value.startsWith("~/") ? path.join(os.homedir(), value.slice(2)) : value;
 
-// Names a TypeSafe account, which is where the service counts rate limits; a key does not reveal
-// its account, so every key on this machine shares one unless told otherwise
-export function accountName(value, label = "account") {
-  if (typeof value !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(value)) throw new ConfigError(`${label} must be a short identifier`);
-  return value;
-}
-
 export function amount(value, name, { positive = false } = {}) {
   if (typeof value !== "number" || !Number.isFinite(value) || (positive ? value <= 0 : value < 0)) throw new ConfigError(`${name} must be a ${positive ? "positive" : "nonnegative"} number`);
   return value;
@@ -41,7 +34,6 @@ export function loadConfig(env = process.env) {
     return value;
   };
   return {
-    account: accountName(env.DECISION_GATE_ACCOUNT || (user.account ?? "default"), "account"),
     key_file: location(user.key_file ?? null, false, "key_file"),
     never_send_file: location(env.DECISION_GATE_NEVER_SEND_FILE || user.never_send_file || null, !!env.DECISION_GATE_NEVER_SEND_FILE, "never_send_file"),
     spend: {
@@ -55,8 +47,8 @@ export function loadConfig(env = process.env) {
       // Measured on one account: requests of about 6,100 tokens finished fastest at two to four in
       // flight, while at about 50,000 tokens one at a time was as fast as two or four
       inFlight: whole(number("DECISION_GATE_IN_FLIGHT", user.limits?.in_flight ?? 4, "limits.in_flight", true), "limits.in_flight"),
-      largeInFlight: whole(amount(user.limits?.large_in_flight ?? 1, "limits.large_in_flight", { positive: true }), "limits.large_in_flight"),
-      largeRequestTokens: amount(user.limits?.large_request_tokens ?? 32000, "limits.large_request_tokens", { positive: true })
+      largeInFlight: 1,
+      largeRequestTokens: 32000
     },
     stateDir: location(path.join(env.XDG_STATE_HOME || path.join(os.homedir(), ".local", "state"), NAME), true, "state directory"),
     cacheDir: location(path.join(env.XDG_CACHE_HOME || path.join(os.homedir(), ".cache"), NAME, "answers"), true, "cache directory")

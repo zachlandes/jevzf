@@ -133,7 +133,7 @@ These are local ceilings, not account-wide billing controls.
 ## Rate limits
 
 TypeSafe publishes 1,200 requests a minute and 250,000 tokens a second for `jev-1.13.0`, counted per account rather than per key.
-jevzf keeps to 80% of both, counted across every process and every key on the machine, since decision-gate assumes all your keys are on one account unless told otherwise.
+jevzf keeps to 80% of both, counted across every process and every key on the machine, since decision-gate assumes all your keys are on one account.
 A search keeps up to 4 requests in flight, decision-gate's measured default for requests of jevzf's size, and every tool on the account shares those 4.
 When TypeSafe answers 429 or 529, every process on the account pauses for the server's `retry-after`, and the official SDK retries the request.
 One person's searches should never reach these limits; they matter when several tools share one account.
@@ -154,7 +154,6 @@ To change the defaults, create `~/.config/decision-gate/config.json` (or `$XDG_C
 
 The file belongs to [decision-gate](packages/decision-gate/README.md), so every tool built on it reads the same ceilings and limits; `per_run_usd` is jevzf's per-search ceiling.
 `limits` describes your TypeSafe account, `share` is the part of it those tools may use, and `in_flight` is how many requests they may have open at once.
-If you have keys on more than one account, decision-gate's README explains how to name them.
 For one-off runs and CI, `DECISION_GATE_PER_RUN_USD`, `DECISION_GATE_PER_DAY_USD`, `DECISION_GATE_RPM`, `DECISION_GATE_TPS` and `DECISION_GATE_IN_FLIGHT` override the file, and `DECISION_GATE_CONFIG` points at another file.
 Relative paths in the file resolve beside it, and `~/` works.
 

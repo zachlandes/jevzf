@@ -1,4 +1,3 @@
-import { readdirSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -13,33 +12,21 @@ const POLL_MS = 50;
 
 const localWindows = new Map();
 const mine = new Set();
-const swept = new Set();
-
-// Windows used to be filed per key fingerprint. They hold at most a minute of starts and a pause,
-// so they are dropped rather than merged into the account's window
-function dropKeyWindows(dir) {
-  if (swept.has(dir)) return;
-  swept.add(dir);
-  try {
-    for (const name of readdirSync(dir)) if (/^[0-9a-f]{16}\.json$/.test(name)) rmSync(path.join(dir, name), { force: true });
-  } catch { /* A leftover window only wastes a little disk */ }
-}
 
 const valid = (state) => Array.isArray(state.starts) && Number.isFinite(state.pausedUntil) && Array.isArray(state.inFlight)
   && state.starts.every((e) => Number.isFinite(e.at) && Number.isFinite(e.tokens) && e.tokens >= 0)
   && state.inFlight.every((e) => Number.isFinite(e.at) && typeof e.token === "string" && typeof e.host === "string" && Number.isInteger(e.pid));
 
-// The service counts rate limits per account, not per key, so every key on one account shares
-// one window, one pause and one set of in-flight slots
-export function createLimiter({ dir, account, limits, notice = () => {}, time = clock }) {
-  const file = path.join(dir, "accounts", `${account}.json`);
+// The service counts rate limits per account, not per key, and a key does not reveal its account,
+// so every key on this machine shares one window, one pause and one set of in-flight slots
+export function createLimiter({ dir, limits, notice = () => {}, time = clock }) {
+  const file = path.join(dir, "accounts", "default.json");
   const rpm = Math.floor(limits.requestsPerMinute * limits.share);
   const tps = Math.floor(limits.tokensPerSecond * limits.share);
   let local = false;
   const transaction = async (job, signal) => {
     if (!local) {
       try {
-        dropKeyWindows(dir);
         return await locked(file, () => {
           const state = readJson(file, { starts: [], pausedUntil: 0, inFlight: [] });
           if (!valid(state)) throw new StateError("invalid rate-limit state");

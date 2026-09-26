@@ -1,5 +1,5 @@
 import path from "node:path";
-import { accountName, amount, loadConfig, keySource } from "./config.mjs";
+import { amount, loadConfig, keySource } from "./config.mjs";
 import { createSpendBudget } from "./budget.mjs";
 import { answerCache } from "./cache.mjs";
 import { ConfigError, RedactionError, ServiceError, SpendCapError, StateError } from "./errors.mjs";
@@ -21,9 +21,7 @@ const provider = typesafe;
 export function openJev(options = {}) {
   const { env = process.env, notice = () => {}, time = clock, tool } = options;
   if (typeof tool !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(tool)) throw new ConfigError("tool must be a short identifier");
-  const loaded = loadConfig(env);
-  // A caller whose key belongs to another account names it; otherwise every key shares the config's
-  const config = { ...loaded, account: options.account === undefined ? loaded.account : accountName(options.account) };
+  const config = loadConfig(env);
   const toolPerDayUsd = options.spend?.perDayUsd === undefined ? Infinity : amount(options.spend.perDayUsd, "daily ceiling");
   const spend = {
     perRunUsd: amount(options.spend?.perRunUsd ?? config.spend.perRunUsd, "per-run ceiling"),
@@ -33,7 +31,7 @@ export function openJev(options = {}) {
   const neverSend = options.neverSend ?? config.never_send_file;
   const redactor = Object.freeze(neverSend ? loadRedactor(neverSend) : createRedactor());
   const endpoint = provider.endpoint(env);
-  const limiter = createLimiter({ dir: path.join(config.stateDir, "limits", provider.name), account: config.account, limits: config.limits, notice, time });
+  const limiter = createLimiter({ dir: path.join(config.stateDir, "limits", provider.name), limits: config.limits, notice, time });
   let identity;
   const credentials = () => {
     if (!identity) {

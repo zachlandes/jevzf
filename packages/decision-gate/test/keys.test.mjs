@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { openJev, PINNED_MODEL, MAX_INPUT_TOKENS, usdFor } from "../lib/index.mjs";
@@ -83,16 +83,16 @@ async function standIn(t, { hold } = {}) {
   return { seen, url: `http://127.0.0.1:${server.address().port}/v1/systemone`, refuseNext: () => { refuseNext = true; }, peak: () => peak };
 }
 
-// Two fake keys, a and b, with key b on the shared account or opted into its own
-async function twoKeys(t, { bAccount, limits = {}, hold, time } = {}) {
+// Two fake keys, a and b, on the one account every key shares
+async function twoKeys(t, { limits = {}, hold, time } = {}) {
   const dir = stateDir(t);
   const server = await standIn(t, { hold });
   for (const name of ["a", "b"]) writeFileSync(path.join(dir, name), `fixture-key-${name}\n`, { mode: 0o600 });
   const config = path.join(dir, "config.json");
   writeFileSync(config, JSON.stringify({ limits: { share: 1, ...limits } }));
   const env = { XDG_CONFIG_HOME: dir, XDG_STATE_HOME: dir, XDG_CACHE_HOME: dir, DECISION_GATE_CONFIG: config, DECISION_GATE_ENDPOINT: server.url };
-  const open = (name, account) => openJev({ env, time, tool: "fixture", key: { file: path.join(dir, name) }, maxRetries: 0, ...(account ? { account } : {}) });
-  const jevs = { a: open("a"), b: open("b", bAccount) };
+  const open = (name) => openJev({ env, time, tool: "fixture", key: { file: path.join(dir, name) }, maxRetries: 0 });
+  const jevs = { a: open("a"), b: open("b") };
   const runs = { a: jevs.a.run(), b: jevs.b.run() };
   t.after(() => Promise.all([runs.a.close(), runs.b.close()]));
   return { dir, server, jevs, ask: (name, text = `public ${name}`) => runs[name].ask(request(text)) };
@@ -104,38 +104,32 @@ function fakeTime() {
   return { waits, time: { now: () => now, sleep: async (ms) => { waits.push(ms); now += ms; } } };
 }
 
-for (const [label, bAccount, shared] of [["two keys on one account share", undefined, true], ["keys on two accounts do not share", "work", false]]) {
-  test(`${label} one rate window and one 429 pause`, async (t) => {
-    const window = fakeTime();
-    const w = await twoKeys(t, { bAccount, limits: { requests_per_minute: 2 }, time: window.time });
-    assert.equal(w.jevs.a.config.account, "default");
-    assert.equal(w.jevs.b.config.account, bAccount ?? "default");
-    await w.ask("a");
-    await w.ask("b");
-    // A third request in the minute fits only an account that has not used both of its starts
-    await w.ask("b");
-    assert.deepEqual(window.waits, shared ? [60000] : []);
+test("two keys on one account share one rate window and one 429 pause", async (t) => {
+  const window = fakeTime();
+  const w = await twoKeys(t, { limits: { requests_per_minute: 2 }, time: window.time });
+  await w.ask("a");
+  await w.ask("b");
+  // A third request in the minute waits, since both keys used the account's two starts
+  await w.ask("b");
+  assert.deepEqual(window.waits, [60000]);
 
-    const pause = fakeTime();
-    const p = await twoKeys(t, { bAccount, time: pause.time });
-    p.server.refuseNext();
-    await assert.rejects(p.ask("a"), (error) => error.status === 429);
-    await p.ask("b");
-    assert.deepEqual(pause.waits, shared ? [5000] : []);
-    await p.ask("a");
-    assert.deepEqual(pause.waits, [5000]);
-    assert.deepEqual(p.server.seen, [`Bearer fixture-key-a`, `Bearer fixture-key-b`, `Bearer fixture-key-a`]);
+  const pause = fakeTime();
+  const p = await twoKeys(t, { time: pause.time });
+  p.server.refuseNext();
+  await assert.rejects(p.ask("a"), (error) => error.status === 429);
+  await p.ask("b");
+  assert.deepEqual(pause.waits, [5000]);
+  await p.ask("a");
+  assert.deepEqual(pause.waits, [5000]);
+  assert.deepEqual(p.server.seen, [`Bearer fixture-key-a`, `Bearer fixture-key-b`, `Bearer fixture-key-a`]);
 
-    // The account's window is filed under its name, and nothing in it names or derives from a key
-    const limits = path.join(p.dir, "decision-gate/limits/typesafe");
-    assert.deepEqual(readdirSync(limits).filter((name) => !name.startsWith("accounts")), []);
-    assert.deepEqual(files(path.join(limits, "accounts")).sort(), shared ? ["default.json"] : ["default.json", "work.json"]);
-    for (const name of files(path.join(limits, "accounts"))) {
-      const stored = readFileSync(path.join(limits, "accounts", name), "utf8");
-      assert.ok(!stored.includes("fixture-key") && !/[0-9a-f]{16}/.test(stored.replace(/"token":"[^"]*"/g, "")), stored);
-    }
-  });
-}
+  // The account's one window names nothing about either key
+  const limits = path.join(p.dir, "decision-gate/limits/typesafe");
+  assert.deepEqual(readdirSync(limits), ["accounts"]);
+  assert.deepEqual(files(path.join(limits, "accounts")), ["default.json"]);
+  const stored = readFileSync(path.join(limits, "accounts/default.json"), "utf8");
+  assert.ok(!stored.includes("fixture-key") && !/[0-9a-f]{16}/.test(stored.replace(/"token":"[^"]*"/g, "")), stored);
+});
 
 test("an account keeps four small requests in flight across its keys, and large ones one at a time", async (t) => {
   const w = await twoKeys(t, { hold: { open: 5, ms: 300 } });
@@ -152,25 +146,13 @@ test("an account keeps four small requests in flight across its keys, and large 
   assert.equal(large.server.peak(), 1);
 });
 
-test("rate windows left by the per-key limiter are dropped when an account's window opens", async (t) => {
-  const w = await twoKeys(t);
-  const limits = path.join(w.dir, "decision-gate/limits/typesafe");
-  mkdirSync(limits, { recursive: true, mode: 0o700 });
-  writeFileSync(path.join(limits, "0123456789abcdef.json"), JSON.stringify({ starts: [], pausedUntil: 0 }), { mode: 0o600 });
-  await w.ask("a");
-  assert.deepEqual(readdirSync(limits), ["accounts"]);
-});
-
-test("the account is a short identifier from the caller, DECISION_GATE_ACCOUNT or the config", (t) => {
+test("in_flight is a positive whole number from the config or DECISION_GATE_IN_FLIGHT", (t) => {
   const dir = stateDir(t);
   const config = path.join(dir, "config.json");
-  writeFileSync(config, JSON.stringify({ account: "personal", limits: { in_flight: 3 } }));
+  writeFileSync(config, JSON.stringify({ limits: { in_flight: 3 } }));
   const env = { XDG_CONFIG_HOME: dir, XDG_STATE_HOME: dir, XDG_CACHE_HOME: dir, DECISION_GATE_CONFIG: config, TYPESAFE_API_KEY: "fixture-only" };
-  assert.equal(openJev({ env, tool: "fixture" }).config.account, "personal");
-  assert.equal(openJev({ env: { ...env, DECISION_GATE_ACCOUNT: "work" }, tool: "fixture" }).config.account, "work");
-  assert.equal(openJev({ env: { ...env, DECISION_GATE_ACCOUNT: "work" }, tool: "fixture", account: "team" }).config.account, "team");
+  assert.equal(openJev({ env, tool: "fixture" }).config.limits.inFlight, 3);
   assert.equal(openJev({ env: { ...env, DECISION_GATE_IN_FLIGHT: "6" }, tool: "fixture" }).config.limits.inFlight, 6);
-  assert.throws(() => openJev({ env, tool: "fixture", account: "../escape" }), /account must be a short identifier/);
   writeFileSync(config, JSON.stringify({ limits: { in_flight: 1.5 } }));
   assert.throws(() => openJev({ env, tool: "fixture" }), /in_flight must be a positive whole number/);
 });
