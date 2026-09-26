@@ -104,7 +104,7 @@ Lines are judged in input order, so when a ceiling stops a search it is the last
 ANSI colour codes are removed from what is sent and kept in what is printed.
 Blank lines are skipped, and identical lines share one judgment.
 Ties keep input order.
-Input is limited to 10 MiB, 5,000 distinct lines and 24,000 bytes per line, with a query of up to 400 characters.
+Input is limited to 10 MiB, 5,000 distinct lines and 24,000 bytes per line once JSON-encoded, with a query of up to 400 characters.
 
 ## Cost and ceilings
 
