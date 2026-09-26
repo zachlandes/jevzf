@@ -24,7 +24,7 @@ export TYPESAFE_API_KEY=...
 ```
 
 ```js
-import { openJev, PINNED_MODEL } from "decision-gate";
+import { openJev } from "decision-gate";
 
 const questions = {
   fit: { type: "noul", instructions: "Does this posting fit the student's skills and goals?" },
