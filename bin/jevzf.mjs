@@ -1,20 +1,27 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
 import { openJev, searchByMeaning, estimateSearch, describeError } from "../lib/core.mjs";
+import { usd, count, shellQuote } from "../lib/format.mjs";
+import { splitRecords } from "../lib/records.mjs";
+import { runPicker, PickerError } from "../lib/picker/run.mjs";
 
 class UsageError extends Error {}
-const HELP = `Usage: cmd | jevzf [options] QUERY...
+const HELP = `Usage: cmd | jevzf [options]           pick in fzf, with a meaning mode
+       cmd | jevzf [options] QUERY...  print matching lines, best first
 
-Jev-powered meaning search for fzf. Node.js 22+.
+Jev-powered search for fzf. Node.js 22+; the picker needs fzf 0.66+.
 Unofficial; not affiliated with TypeSafe.
 
-  --scores         Prefix each match with probability and a tab
+In the picker, ctrl-s cycles fuzzy, exact and meaning (alt-f, alt-e, alt-m
+jump); in meaning, type what you mean and press enter.
+
+  --scores         Prefix each match with probability and a tab (filter)
   --floor P        Minimum probability (default 0.58)
-  --closest N      Show N closest if none pass (default 0)
+  --closest N      Show N closest if none pass (default 0; picker 3)
   --max-cost USD   Lower this search's ceiling
   --no-cache       Neither read nor write cached answers
   --read0          Read and write NUL-separated records
-  --estimate       Estimate without a key or network
+  --estimate       Estimate without a key or network (filter)
   --help           Show help
   --version        Show version
   -- QUERY         Query beginning with a dash
@@ -28,18 +35,11 @@ Built-in known secret formats are always filtered; a never-send file is optional
 process.stdout.on("error", (error) => process.exit(error.code === "EPIPE" ? 0 : 2));
 const notice = (message) => process.stderr.write(`jevzf: ${message}\n`);
 const controller = new AbortController();
-process.once("SIGINT", () => {
+const interruptible = () => process.once("SIGINT", () => {
   controller.abort(new Error("interrupted"));
   // Handling SIGINT replaces the default exit, so an idle stdin read must be ended explicitly
   process.stdin.destroy();
 });
-// Significant digits keep tiny amounts readable; cents stay visible on round amounts such as 0.20
-const usd = (value, digits = 3) => {
-  const text = new Intl.NumberFormat("en-US", { maximumSignificantDigits: digits }).format(value);
-  return `USD ${(text.split(".")[1]?.length ?? 0) >= 2 ? text : value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-};
-const count = (value) => value.toLocaleString("en-US");
-const shellQuote = (text) => `'${text.replaceAll("'", "'\\''")}'`;
 
 function parse(args) {
   const options = { floor: 0.58, closest: 0 };
@@ -52,12 +52,17 @@ function parse(args) {
       const value = args[++i];
       const n = value?.trim() ? Number(value) : NaN;
       if (!Number.isFinite(n) || n < 0 || (arg === "--floor" && n > 1) || (arg === "--closest" && !Number.isInteger(n))) throw new UsageError(`invalid ${arg}`);
-      options[arg.slice(2)] = n; continue;
+      options[arg.slice(2)] = n;
+      if (arg === "--closest") options.closestSet = true;
+      continue;
     }
     if (arg.startsWith("-")) throw new UsageError("unknown option; use -- before a query beginning with a dash");
     query.push(arg);
   }
-  if (!query.join(" ").trim()) throw new UsageError("a meaning query is required; use --help");
+  if (!query.join(" ").trim()) {
+    if (options.scores || options.estimate) throw new UsageError("--scores and --estimate need a query; use --help");
+    return { ...options, closest: options.closestSet ? options.closest : 3, query: null };
+  }
   return { ...options, query: query.join(" ") };
 }
 
@@ -67,6 +72,11 @@ async function main() {
   if (args.length === 1 && args[0] === "--version") { process.stdout.write(`${JSON.parse(readFileSync(new URL("../package.json", import.meta.url))).version}\n`); return; }
   const opts = parse(args);
   if (process.stdin.isTTY) throw new UsageError("pipe text into jevzf");
+  if (opts.query === null) {
+    process.exitCode = await runPicker({ options: { floor: opts.floor, closest: opts.closest, capUsd: opts["max-cost"], noCache: !!opts["no-cache"], read0: !!opts.read0 } });
+    return;
+  }
+  interruptible();
   const jev = openJev({ notice });
   const status = jev.status();
   if (!opts.estimate && status.missing) {
@@ -87,15 +97,7 @@ async function main() {
   const input = Buffer.concat(chunks);
   const delimiter = opts.read0 ? 0 : 10;
   if (!opts.read0 && input.includes(0)) throw new UsageError("NUL input needs --read0");
-  // Retain original bytes and terminators; scoring only receives decoded text
-  const records = [];
-  for (let start = 0; start < input.length;) {
-    const end = input.indexOf(delimiter, start);
-    const stop = end < 0 ? input.length : end;
-    const bytes = input.subarray(start, stop);
-    records.push({ text: bytes.toString("utf8"), bytes, terminated: end >= 0 });
-    start = end < 0 ? input.length : end + 1;
-  }
+  const records = splitRecords(input, delimiter);
   const search = { jev, items: records, query: opts.query, capUsd: opts["max-cost"] };
   const estimate = estimateSearch(search);
   if (opts.estimate) {
@@ -117,6 +119,6 @@ async function main() {
 
 main().catch((error) => {
   if (controller.signal.aborted) { process.exitCode = 130; return; }
-  notice(error instanceof UsageError ? error.message : describeError(error));
+  notice(error instanceof UsageError || error instanceof PickerError ? error.message : describeError(error));
   process.exitCode = 2;
 });

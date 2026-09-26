@@ -3,26 +3,50 @@
 Jev-powered search for fzf.
 Unofficial; not affiliated with TypeSafe.
 
-Pipe lines in, say what you mean, and get the matching lines back, best first, byte for byte as they came in.
-[Jev](https://docs.typesafe.ai/) judges each line against your words, so "when did we change the retry logic" can find `a3f1c2e back off harder on 529s` without sharing a word with it.
-It works on its own like `grep` or `fzf --filter`, and inside stock fzf through one binding.
+Pipe anything into `jevzf` and it opens stock fzf with a third mode beside fuzzy and exact: meaning.
+In meaning mode you type what you mean and press Enter, and [Jev](https://docs.typesafe.ai/) judges every line against your words, so "when did we change the retry logic" can find `a3f1c2e back off harder on 529s` without sharing a word with it.
+The results come back best first, and typing then narrows them like any fzf list.
 
 ## Try it
 
-Requires Node.js 22 or newer.
+Requires Node.js 22 or newer, and fzf 0.66 or newer for the picker.
 jevzf is not on npm yet; to try this checkout:
 
 ```sh
 npm pack
 npm install -g ./jevzf-0.1.0.tgz
+git log --oneline | jevzf                          # fzf; ctrl-s for meaning, then type and press enter
 export TYPESAFE_API_KEY=...                        # console.typesafe.ai/settings/keys
-git log --oneline | jevzf "when did we change the retry logic"
+git log --oneline | jevzf "when did we change the retry logic"   # the same search as a plain filter
 ```
 
+Fuzzy and exact search, `--help` and `--estimate` need no key and no configuration.
 `TYPESAFE_API_KEY` is the only setup meaning search needs.
 The built-in secret filter, spend ceilings, rate limiter and answer cache are on without any configuration.
 
-Without a key, jevzf sends nothing and exits 2:
+## The picker
+
+`cmd | jevzf` shows the lines in fzf and prints the one you pick, as fzf does.
+
+- `ctrl-s` cycles fuzzy, exact and meaning; `alt-f`, `alt-e` and `alt-m` jump straight to one.
+- What you have typed stays through every switch.
+- In meaning mode, Enter runs the search: never while you type, because every search is a paid request over the whole input.
+- While it runs, the header shows its progress and matches appear as they are found; then the list is replaced by the ranked results and your words move to the header, so typing narrows the results.
+- `alt-m` starts a new meaning search with the same words; Enter on a result picks it.
+- The header shows what a search would cost before you press Enter, and what it cost after.
+- Pressing Enter again with the same words over the same lines is free: answers are cached per line.
+
+The picker copies what fzf reads into a private temporary file, so meaning search can read the lines again; the copy is deleted when fzf exits.
+It talks to fzf over a Unix socket in that private directory, never a TCP port.
+Without a key it still opens, and meaning mode says `Meaning search needs a TypeSafe key · export TYPESAFE_API_KEY` and sends nothing.
+Your `FZF_DEFAULT_OPTS` still apply.
+fzf is found through `JEVZF_FZF` or `PATH`; a launcher with a minimal `PATH` should call jevzf by its full path.
+
+## The filter
+
+`cmd | jevzf QUERY...` is the same meaning search without fzf: it prints the matching lines, best first, byte for byte as they came in, the way `grep` or `fzf --filter` would.
+
+Without a key, the filter sends nothing and exits 2:
 
 ```text
 jevzf: meaning search needs a TypeSafe API key; nothing was sent.
@@ -36,9 +60,10 @@ jevzf: meaning search needs a TypeSafe API key; nothing was sent.
 git log --oneline | jevzf --estimate "when did we change the retry logic"
 ```
 
-## With stock fzf
+## A binding for your own fzf
 
-fzf reads its input once, so this binding works for any source you can run again, such as `git log`, `rg` or `FZF_DEFAULT_COMMAND`.
+If you already run fzf over a source you can run again, such as `git log`, `rg` or `FZF_DEFAULT_COMMAND`, one binding adds meaning search to it without the picker.
+fzf reads piped input only once, which is why piped text goes through the picker instead.
 Ctrl-Space searches by meaning for what you have typed; Ctrl-F goes back to fzf's own fuzzy search.
 
 ```sh
@@ -55,20 +80,22 @@ The binding needs stock fzf with `disable-search`; there is no fork, patch or pl
 ## Options
 
 ```text
-cmd | jevzf [options] QUERY...
+cmd | jevzf [options]             the picker
+cmd | jevzf [options] QUERY...    the filter
 ```
 
-- `--scores` prefixes each match with its probability and a tab, such as `0.83<TAB>`.
+- `--scores` (filter) prefixes each match with its probability and a tab, such as `0.83<TAB>`.
 - `--floor P` sets the minimum probability for a match; the default is 0.58, the threshold Needle uses.
-- `--closest N` prints the N best lines when none pass the floor; the default is 0.
+- `--closest N` shows the N best lines when none pass the floor; the default is 3 in the picker and 0 in the filter.
 - `--max-cost USD` lowers this search's ceiling; it never raises it.
 - `--no-cache` neither reads nor writes cached answers.
 - `--read0` reads and writes NUL-separated records, as `fzf --read0` and `xargs -0` do.
-- `--estimate` counts lines, estimates the cost, names the ceilings and says how many lines the secret filter would change.
+- `--estimate` (filter) counts lines, estimates the cost, names the ceilings and says how many lines the secret filter would change.
 - `--help` and `--version` need no key.
 - `--` ends the options, for a query that begins with a dash.
 
 Exit codes follow grep and fzf: 0 at least one match, 1 nothing matched, 2 an error such as a bad flag, no key or every request failing, and 130 interrupted.
+The picker exits as fzf does: 0 when you pick a line, 1 when there was nothing to pick, and 130 on Escape or Ctrl-C.
 A search stopped by its ceiling still exits 0 or 1 by what it found, and says so on stderr.
 
 Lines are judged in input order, so when a ceiling stops a search it is the last lines that go unjudged; pipe through `tac` to judge the newest first.
@@ -79,7 +106,7 @@ Input is limited to 10 MiB, 5,000 distinct lines and 24,000 bytes per line, with
 
 ## Cost and ceilings
 
-When stderr is a terminal, jevzf prints a cost line before sending and a summary after:
+The picker's header and, when stderr is a terminal, the filter show the cost before sending and a summary after:
 
 ```text
 jevzf: about USD 0.012 · never more than USD 0.02 per search · USD 0.18 left today

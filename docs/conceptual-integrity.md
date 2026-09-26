@@ -2,7 +2,16 @@
 
 jevzf is Jev-powered search for fzf: pipe lines in, say what you mean, get the matching lines back.
 Stock fzf owns interaction; the shell owns collecting candidates.
-The filter and the fzf binding recipe are the command's whole surface in this release.
+The command has three surfaces, and each exists for a reason the others cannot cover.
+
+The picker, `cmd | jevzf`, is a thin wrapper around stock fzf rather than a fork or a new interface.
+It exists because plain bindings cannot re-read piped stdin, which fzf consumes once, cannot show a search's progress, and cannot replace the list with the final ranking.
+It adds only a private copy of the input, the meaning mode, and a Unix socket through which a running search updates fzf; fuzzy and exact are fzf's own.
+Meaning search runs on Enter, never while typing, because each search is a paid request over the whole input.
+The mode is called "meaning" rather than "jev" so that another provider can stand behind it later without renaming anything a user types.
+
+The filter, `cmd | jevzf QUERY`, is the same search without fzf, and the picker's meaning mode runs through the same core call, so the two cannot drift apart.
+The binding recipe serves people whose fzf already has a source it can run again, and needs no picker.
 
 `jevzf/core` is the one owner of calling Jev, for this command and for other tools that adopt it.
 It holds the key handling, the never-send check, the spend ceilings, the answer cache and the rate limiter, because each of those is only a guarantee if no caller can go around it.
