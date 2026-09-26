@@ -41,7 +41,7 @@ function liveRows(text, now) {
 export function answerCache({ stateDir, cacheDir, scope, enabled = true, notice = () => {}, time = clock }) {
   let key, file;
   const warn = () => { notice("answer cache unavailable; continuing without caching"); enabled = false; };
-  const hash = (text) => createHmac("sha256", key).update(text).digest("hex");
+  const hash = (value) => createHmac("sha256", key).update(value).digest("hex");
   if (enabled) {
     try {
       key = hashKey(stateDir);
@@ -55,13 +55,15 @@ export function answerCache({ stateDir, cacheDir, scope, enabled = true, notice 
     catch (error) { if (error.code !== "ENOENT") warn(); }
   }
   return {
-    get(text) { return enabled ? entries.get(hash(text))?.p : undefined; },
-    // One locked write per batch of [text, probability] pairs
+    get(name) { return enabled ? entries.get(hash(name))?.p : undefined; },
+    // One locked write per batch of [key, probability] pairs
     async put(pairs) {
+      // Only a key's keyed hash and a number are stored, so nothing else is accepted
+      if (!Array.isArray(pairs) || pairs.some((pair) => typeof pair?.[0] !== "string" || !Number.isFinite(pair[1]) || pair[1] < 0 || pair[1] > 1)) throw new TypeError("cache entries must be [string key, probability] pairs");
       if (!enabled || !pairs.length) return;
       try {
         const now = time.now();
-        const rows = pairs.map(([text, p]) => ({ h: hash(text), p, t: now }));
+        const rows = pairs.map(([name, p]) => ({ h: hash(name), p, t: now }));
         await locked(path.join(cacheDir, "maintenance"), () => {
           // Expired and superseded rows would otherwise keep a busy query's file growing forever
           if (stale > Math.max(256, entries.size)) {

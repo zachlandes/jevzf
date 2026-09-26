@@ -90,7 +90,7 @@ sent after one new line: 3
 Each signal arrives while a request is in flight (the stand-in never answers a search starting with "stuck"). The search exits with the shell's code for the signal, closes its spend hold at the one attempt that may have been billed, leaves no lock, and the next search runs at once.
 
 ```bash
-node stand-in.mjs 'for sig in INT TERM HUP; do rm -f "$ARRIVED"; echo login | jevzf stuck on $sig & pid=$!; until [ -e "$ARRIVED" ]; do sleep 0.05; done; kill -$sig $pid; wait $pid; code=$?; node -e "const fs = require(\"fs\"), d = process.env.XDG_STATE_HOME + \"/jevzf/spend\"; const row = fs.readFileSync(d + \"/\" + fs.readdirSync(d).find((n) => n.endsWith(\".jsonl\")), \"utf8\").trim().split(\"\\n\").map(JSON.parse).at(-1); console.log(\"SIG$sig: exit $code, hold closed: \" + row.closed + \", held only what may have been billed: \" + (row.hold === row.usd) + \", other files beside the ledger: \" + fs.readdirSync(d).filter((n) => !n.endsWith(\".jsonl\")).length)"; echo login retry | jevzf retry after $sig > /dev/null && echo "  next search: exit $?"; done'
+node stand-in.mjs 'for sig in INT TERM HUP; do rm -f "$ARRIVED"; echo login | jevzf stuck on $sig & pid=$!; until [ -e "$ARRIVED" ]; do sleep 0.05; done; kill -$sig $pid; wait $pid; code=$?; node -e "const fs = require(\"fs\"), d = process.env.XDG_STATE_HOME + \"/decision-gate/spend/typesafe\"; const row = fs.readFileSync(d + \"/\" + fs.readdirSync(d).find((n) => n.endsWith(\".jsonl\")), \"utf8\").trim().split(\"\\n\").map(JSON.parse).at(-1); console.log(\"SIG$sig: exit $code, hold closed: \" + row.closed + \", held only what may have been billed: \" + (row.hold === row.usd) + \", other files beside the ledger: \" + fs.readdirSync(d).filter((n) => !n.endsWith(\".jsonl\")).length)"; echo login retry | jevzf retry after $sig > /dev/null && echo "  next search: exit $?"; done'
 ```
 
 ```output
@@ -107,7 +107,7 @@ SIGHUP: exit 129, hold closed: true, held only what may have been billed: true, 
 With only a little of today's allowance left, a 200-line search warns first, prints the matches from the lines it could judge, and says which ceiling stopped it and how many lines went unjudged, in input order.
 
 ```bash
-node stand-in.mjs 'awk "BEGIN { for (i = 0; i < 200; i++) print (i % 20 == 0 ? \"commit \" i \" retry uploads\" : \"commit \" i \" other work\") }" > $HOME/in; JEVZF_PER_DAY_USD=0.003 jevzf retry < $HOME/in; echo "exit $?"'
+node stand-in.mjs 'awk "BEGIN { for (i = 0; i < 200; i++) print (i % 20 == 0 ? \"commit \" i \" retry uploads\" : \"commit \" i \" other work\") }" > $HOME/in; DECISION_GATE_PER_DAY_USD=0.003 jevzf retry < $HOME/in; echo "exit $?"'
 ```
 
 ```output
@@ -122,7 +122,7 @@ exit 0
 When the ceiling cannot cover even one request, the search sends nothing and exits 2, instead of looking like a search that found nothing.
 
 ```bash
-node stand-in.mjs 'echo commit 1 retry uploads | JEVZF_PER_DAY_USD=0.002 jevzf retry; echo "exit $?"; echo "lines sent: $(wc -l < "$SENT" | tr -d " ")"'
+node stand-in.mjs 'echo commit 1 retry uploads | DECISION_GATE_PER_DAY_USD=0.002 jevzf retry; echo "exit $?"; echo "lines sent: $(wc -l < "$SENT" | tr -d " ")"'
 ```
 
 ```output

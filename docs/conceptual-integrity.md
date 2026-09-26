@@ -13,15 +13,19 @@ The mode is called "meaning" rather than "jev" so that another provider can stan
 The filter, `cmd | jevzf QUERY`, is the same search without fzf, and the picker's meaning mode runs through the same core call, so the two cannot drift apart.
 The binding recipe serves people whose fzf already has a source it can run again, and needs no picker.
 
-`jevzf/core` is the one owner of calling Jev, for this command and for other tools that adopt it.
-It holds the key handling, the never-send check, the spend ceilings, the answer cache and the rate limiter, because each of those is only a guarantee if no caller can go around it.
+`decision-gate`, the second package in this repository, is the one owner of calling Jev, for this command and for the other tools that adopt it.
+It holds the key handling, the never-send check, the spend ceilings, the rate limiter, the answer cache and the cost ledger, because each of those is only a guarantee if no caller can go around it.
 A tool that kept its own copy would split the daily ceiling and the rate window into parts that cannot see each other.
-The core is generic: a caller names itself with `tool` for its spend records and supplies its own key source and never-send list, and nothing in the core knows any particular caller.
-It stays an internal layer of this package rather than a separate package until a second release cycle shows its interface holding still.
+It is a separate package rather than a layer of jevzf because tools unrelated to fzf should not install an fzf tool to spend a key.
+The gate is generic: a caller names itself with `tool` for its spend records and supplies its own key source and never-send list, and nothing in the gate knows any particular caller.
+Its answer cache is keyed by the caller and stores no text, so a caller's recipe decides what an answer means.
+Anything that calls a generative model, stores request text or runs at development time stays outside it.
 
-The core builds on TypeSafe's official SDK instead of beside it.
+Meaning search is a recipe on top of the gate, not part of it, and stays inside jevzf with no public import path until its comparison reports.
+
+The gate builds on TypeSafe's official SDK instead of beside it.
 The SDK owns serialization, timeouts, retries and `retry-after` parsing.
-jevzf wraps the SDK's `fetch`, so every attempt it makes, retries included, passes the never-send check, the ceilings and the limiter, and nothing reimplements what the SDK already does.
+The gate wraps the SDK's `fetch`, so every attempt, retries included, passes the never-send check, the ceilings and the limiter, and nothing reimplements what the SDK already does.
 
 The secret filter recognises known formats only.
 Guessing at long random strings would erase ordinary input such as commit hashes and file paths with digits, which an earlier heuristic did; a user who needs more has the never-send list.

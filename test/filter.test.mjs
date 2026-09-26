@@ -6,7 +6,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { PINNED_MODEL } from "../lib/meaning/jev.mjs";
+import { PINNED_MODEL } from "decision-gate";
 
 const cli = fileURLToPath(new URL("../bin/jevzf.mjs", import.meta.url));
 async function fixture(t, reject) {
@@ -27,7 +27,7 @@ async function fixture(t, reject) {
     await new Promise((resolve) => server.close(resolve));
     rmSync(dir, { recursive: true, force: true });
   });
-  const env = { PATH: process.env.PATH, HOME: dir, XDG_CONFIG_HOME: dir, XDG_STATE_HOME: dir, XDG_CACHE_HOME: dir, TYPESAFE_API_KEY: "fixture-only", JEVZF_JEV_ENDPOINT: `http://127.0.0.1:${server.address().port}/v1/systemone` };
+  const env = { PATH: process.env.PATH, HOME: dir, XDG_CONFIG_HOME: dir, XDG_STATE_HOME: dir, XDG_CACHE_HOME: dir, TYPESAFE_API_KEY: "fixture-only", DECISION_GATE_ENDPOINT: `http://127.0.0.1:${server.address().port}/v1/systemone` };
   const run = (input, args = ["authentication"], overrides = {}) => new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [cli, ...args], { env: { ...env, ...overrides } });
     const stdout = [], stderr = [];
@@ -127,7 +127,7 @@ test("ctrl-c exits 130 while waiting on stdin and while a request is in flight",
     await new Promise((resolve) => server.close(resolve));
     rmSync(dir, { recursive: true, force: true });
   });
-  const env = { PATH: process.env.PATH, HOME: dir, XDG_CONFIG_HOME: dir, XDG_STATE_HOME: dir, XDG_CACHE_HOME: dir, TYPESAFE_API_KEY: "fixture-only", JEVZF_JEV_ENDPOINT: `http://127.0.0.1:${server.address().port}/v1/systemone` };
+  const env = { PATH: process.env.PATH, HOME: dir, XDG_CONFIG_HOME: dir, XDG_STATE_HOME: dir, XDG_CACHE_HOME: dir, TYPESAFE_API_KEY: "fixture-only", DECISION_GATE_ENDPOINT: `http://127.0.0.1:${server.address().port}/v1/systemone` };
   // Signals the test through fd 3 once the CLI installs its handler, so SIGINT never races start-up
   const ready = `data:text/javascript,${encodeURIComponent('import { writeSync } from "node:fs"; process.on("newListener", (name) => { if (name === "SIGINT") writeSync(3, "ready"); });')}`;
   const idle = spawn(process.execPath, ["--import", ready, cli, "query"], { env, stdio: ["pipe", "pipe", "pipe", "pipe"] });
@@ -160,8 +160,8 @@ test("Ctrl-C, an fzf reload's SIGTERM, SIGHUP and kill -9 mid-request never bloc
     await new Promise((resolve) => server.close(resolve));
     rmSync(dir, { recursive: true, force: true });
   });
-  const env = { PATH: process.env.PATH, HOME: dir, XDG_CONFIG_HOME: dir, XDG_STATE_HOME: dir, XDG_CACHE_HOME: dir, TYPESAFE_API_KEY: "fixture-only", JEVZF_JEV_ENDPOINT: `http://127.0.0.1:${server.address().port}/v1/systemone` };
-  const spend = path.join(dir, "jevzf", "spend");
+  const env = { PATH: process.env.PATH, HOME: dir, XDG_CONFIG_HOME: dir, XDG_STATE_HOME: dir, XDG_CACHE_HOME: dir, TYPESAFE_API_KEY: "fixture-only", DECISION_GATE_ENDPOINT: `http://127.0.0.1:${server.address().port}/v1/systemone` };
+  const spend = path.join(dir, "decision-gate", "spend", "typesafe");
   const lastRow = () => JSON.parse(readFileSync(path.join(spend, readdirSync(spend).find((name) => name.endsWith(".jsonl"))), "utf8").trim().split("\n").at(-1));
   const search = (query, signal) => new Promise((resolve) => {
     const child = spawn(process.execPath, [cli, query], { env });

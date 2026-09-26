@@ -2,8 +2,9 @@ import { readFileSync, statSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createHash } from "node:crypto";
+import { ConfigError } from "./errors.mjs";
 
-export class ConfigError extends Error {}
+const NAME = "decision-gate";
 export const expandHome = (value) => value.startsWith("~/") ? path.join(os.homedir(), value.slice(2)) : value;
 
 export function amount(value, name, { positive = false } = {}) {
@@ -12,11 +13,11 @@ export function amount(value, name, { positive = false } = {}) {
 }
 
 export function loadConfig(env = process.env) {
-  const file = env.JEVZF_CONFIG || path.join(env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"), "jevzf", "config.json");
+  const file = env.DECISION_GATE_CONFIG || path.join(env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"), NAME, "config.json");
   let user = {};
   try { user = JSON.parse(readFileSync(file, "utf8")); }
   catch (error) {
-    if (error.code !== "ENOENT" || env.JEVZF_CONFIG) throw new ConfigError("cannot read config as JSON");
+    if (error.code !== "ENOENT" || env.DECISION_GATE_CONFIG) throw new ConfigError("cannot read config as JSON");
   }
   const object = (value) => value && typeof value === "object" && !Array.isArray(value);
   if (!object(user) || (user.spend !== undefined && !object(user.spend)) || (user.limits !== undefined && !object(user.limits))) throw new ConfigError("config, spend and limits must be objects");
@@ -30,18 +31,18 @@ export function loadConfig(env = process.env) {
   if (share > 1) throw new ConfigError("limits.share must not exceed 1");
   return {
     key_file: location(user.key_file ?? null, false, "key_file"),
-    never_send_file: location(env.JEVZF_NEVER_SEND_FILE || user.never_send_file || null, !!env.JEVZF_NEVER_SEND_FILE, "never_send_file"),
+    never_send_file: location(env.DECISION_GATE_NEVER_SEND_FILE || user.never_send_file || null, !!env.DECISION_GATE_NEVER_SEND_FILE, "never_send_file"),
     spend: {
-      perSearchUsd: number("JEVZF_PER_SEARCH_USD", user.spend?.per_search_usd ?? 0.02, "per-search ceiling"),
-      perDayUsd: number("JEVZF_PER_DAY_USD", user.spend?.per_day_usd ?? 0.2, "daily ceiling")
+      perRunUsd: number("DECISION_GATE_PER_RUN_USD", user.spend?.per_run_usd ?? 0.02, "per-run ceiling"),
+      perDayUsd: number("DECISION_GATE_PER_DAY_USD", user.spend?.per_day_usd ?? 0.2, "daily ceiling")
     },
     limits: {
-      requestsPerMinute: number("JEVZF_RPM", user.limits?.requests_per_minute ?? 1200, "requests per minute", true),
-      tokensPerSecond: number("JEVZF_TPS", user.limits?.tokens_per_second ?? 250000, "tokens per second", true),
+      requestsPerMinute: number("DECISION_GATE_RPM", user.limits?.requests_per_minute ?? 1200, "requests per minute", true),
+      tokensPerSecond: number("DECISION_GATE_TPS", user.limits?.tokens_per_second ?? 250000, "tokens per second", true),
       share
     },
-    stateDir: location(env.JEVZF_STATE_DIR || path.join(env.XDG_STATE_HOME || path.join(os.homedir(), ".local", "state"), "jevzf"), true, "state directory"),
-    cacheDir: location(path.join(env.XDG_CACHE_HOME || path.join(os.homedir(), ".cache"), "jevzf", "answers"), true, "cache directory")
+    stateDir: location(path.join(env.XDG_STATE_HOME || path.join(os.homedir(), ".local", "state"), NAME), true, "state directory"),
+    cacheDir: location(path.join(env.XDG_CACHE_HOME || path.join(os.homedir(), ".cache"), NAME, "answers"), true, "cache directory")
   };
 }
 
@@ -51,12 +52,12 @@ function privateFile(file) {
   if (!stat.size) throw new ConfigError("key file must contain one nonempty line");
 }
 
-export function keySource(explicit, config, env) {
-  const source = explicit ?? (env.TYPESAFE_API_KEY?.trim() ? { env: "TYPESAFE_API_KEY" } : config.key_file ? { file: config.key_file } : null);
+export function keySource(explicit, config, env, provider) {
+  const source = explicit ?? (env[provider.keyEnv]?.trim() ? { env: provider.keyEnv } : config.key_file ? { file: config.key_file } : null);
   if (source !== null && (typeof source !== "object" || Object.keys(source).length !== 1 || !["file", "env", "value"].includes(Object.keys(source)[0]) || typeof Object.values(source)[0] !== "string")) throw new ConfigError("key needs exactly one file, env or value source");
   const status = () => {
     try {
-      if (!source) return { ok: false, missing: true, reason: "meaning search needs a TypeSafe API key: export TYPESAFE_API_KEY; nothing was sent" };
+      if (!source) return { ok: false, missing: true, reason: `a ${provider.label} API key is needed: export ${provider.keyEnv}; nothing was sent` };
       if (source.file !== undefined) privateFile(expandHome(source.file));
       else if (!(source.value ?? env[source.env])?.trim()) throw new ConfigError("configured key source is empty");
       return { ok: true };

@@ -7,7 +7,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { PINNED_MODEL } from "../lib/meaning/jev.mjs";
+import { PINNED_MODEL } from "decision-gate";
 import { openJev, searchByMeaning } from "../lib/core.mjs";
 import { act, EXACT_SHELL, exactTerms, fitWidth, glyphs, header, summary } from "../lib/picker/view.mjs";
 import { handleKey, headerInfo, saveState, loadState, inputFile, endFile, pushFile, resultsFile, QUEUED_SHELL } from "../lib/picker/keys.mjs";
@@ -195,8 +195,8 @@ const ENTER = "\r", ESC = "\x1b";
 
 test("under --no-cache the meaning header prices lines an earlier search cached", async (t) => {
   const s = await standIn(t);
-  const f = keyFixture(t, { TYPESAFE_API_KEY: "fixture-only", JEVZF_JEV_ENDPOINT: s.endpoint });
-  const env = { ...utf8, XDG_CONFIG_HOME: path.join(f.dir, "home"), XDG_STATE_HOME: path.join(f.dir, "home"), XDG_CACHE_HOME: path.join(f.dir, "home"), TYPESAFE_API_KEY: "fixture-only", JEVZF_JEV_ENDPOINT: s.endpoint };
+  const f = keyFixture(t, { TYPESAFE_API_KEY: "fixture-only", DECISION_GATE_ENDPOINT: s.endpoint });
+  const env = { ...utf8, XDG_CONFIG_HOME: path.join(f.dir, "home"), XDG_STATE_HOME: path.join(f.dir, "home"), XDG_CACHE_HOME: path.join(f.dir, "home"), TYPESAFE_API_KEY: "fixture-only", DECISION_GATE_ENDPOINT: s.endpoint };
   await searchByMeaning({ jev: openJev({ env }), query: "why uploads fail", items: ["retry failed uploads", "bump deps"] });
   const state = { ...loadState(f.dir), mode: "meaning" };
   const cached = await headerInfo(f.dir, state, env, "why uploads fail");
@@ -213,7 +213,7 @@ test("picker: fuzzy picks like fzf, and meaning search ranks the piped lines", {
   const fuzzy = await picker(t, { input, steps: [["wait", "fuzzy>"], ["send", "typo"], ["wait", "2/4"], ["send", ENTER]] });
   assert.equal(fuzzy.code, 0, fuzzy.stderr);
   assert.equal(fuzzy.output, "fix typo\n");
-  const env = { TYPESAFE_API_KEY: "fixture-only", JEVZF_JEV_ENDPOINT: s.endpoint };
+  const env = { TYPESAFE_API_KEY: "fixture-only", DECISION_GATE_ENDPOINT: s.endpoint };
   const home = scratch(t);
   const meaning = await picker(t, { input, env, home, steps: [["wait", "fuzzy>"], ["send", `${ESC}m`], ["wait", "Type what you mean"], ["send", "when uploads fail (again)"], ["wait", "(again)"], ["send", ENTER], ["wait", "found in 4 lines"], ["send", ENTER]] });
   assert.equal(meaning.code, 0, meaning.stderr);
@@ -236,11 +236,11 @@ test("picker: without a key meaning mode explains itself and escape exits 130", 
 test("picker: leaving meaning mode mid-search stops it and closes its spend hold", { skip: !usableFzf }, async (t) => {
   const s = await standIn(t, { hold: true });
   const home = scratch(t);
-  const env = { TYPESAFE_API_KEY: "fixture-only", JEVZF_JEV_ENDPOINT: s.endpoint };
+  const env = { TYPESAFE_API_KEY: "fixture-only", DECISION_GATE_ENDPOINT: s.endpoint };
   const result = await picker(t, { input: "retry\nbump\n", env, home, steps: [["wait", "fuzzy>"], ["send", `${ESC}m`], ["wait", "Type what you mean"], ["send", `why${ENTER}`], ["wait", "Searching for"], ["sleep", "1"], ["send", `${ESC}f`], ["wait", "alt-m searches by meaning"], ["send", ESC]] });
   assert.equal(result.code, 130, result.stderr);
   assert.equal(s.requests.length, 1);
-  const spend = path.join(home, "jevzf", "spend");
+  const spend = path.join(home, "decision-gate", "spend", "typesafe");
   let last;
   for (let i = 0; i < 100 && !last?.closed; i++) {
     await sleep(50);
@@ -255,7 +255,7 @@ test("picker: leaving meaning mode mid-search stops it and closes its spend hold
 
 test("picker: meaning search sees input that arrived after leaving fuzzy mode", { skip: !usableFzf }, async (t) => {
   const s = await standIn(t);
-  const env = { TYPESAFE_API_KEY: "fixture-only", JEVZF_JEV_ENDPOINT: s.endpoint };
+  const env = { TYPESAFE_API_KEY: "fixture-only", DECISION_GATE_ENDPOINT: s.endpoint };
   const lines = Array.from({ length: 40 }, (_, i) => `line ${i}\n`);
   const input = [[0, "bump deps\n"], [2, lines.slice(0, 10).join("")], [0.3, lines.slice(10, 20).join("")], [0.3, `${lines.slice(20).join("")}retry failed uploads\n`]];
   const result = await picker(t, { input, env, steps: [["wait", "fuzzy>"], ["send", `${ESC}m`], ["wait", "Type what you mean"], ["sleep", "4"], ["send", `why${ENTER}`], ["wait", "found in 42 lines"], ["send", ENTER]] });
@@ -265,7 +265,7 @@ test("picker: meaning search sees input that arrived after leaving fuzzy mode", 
 
 test("picker: a line split across chunks is never listed or searched until it is whole", { skip: !usableFzf }, async (t) => {
   const s = await standIn(t);
-  const env = { TYPESAFE_API_KEY: "fixture-only", JEVZF_JEV_ENDPOINT: s.endpoint };
+  const env = { TYPESAFE_API_KEY: "fixture-only", DECISION_GATE_ENDPOINT: s.endpoint };
   const input = [[0, "bump deps\nadd backoff\nretry fai"], ["rest", "led uploads\nfix typo\n"]];
   const early = await picker(t, { input, env, steps: [["wait", "fuzzy>"], ["send", `${ESC}m`], ["wait", "2 lines so far"], ["send", "why"], ["wait", "why"], ["send", ENTER], ["wait", "in the first 2 lines so far"], ["touch", "rest"], ["send", ESC]] });
   assert.equal(early.code, 130, early.stderr);
@@ -323,7 +323,7 @@ test("a search's pushes apply only while it is current, and its outcome reloads 
 
 test("picker: --read0 keeps multiline records whole through a meaning search", { skip: !usableFzf }, async (t) => {
   const s = await standIn(t);
-  const env = { TYPESAFE_API_KEY: "fixture-only", JEVZF_JEV_ENDPOINT: s.endpoint };
+  const env = { TYPESAFE_API_KEY: "fixture-only", DECISION_GATE_ENDPOINT: s.endpoint };
   const result = await picker(t, { input: "bump\ndeps\0retry\nuploads\0", args: ["--read0"], env, steps: [["wait", "fuzzy>"], ["send", `${ESC}m`], ["wait", "Type what you mean"], ["send", `why${ENTER}`], ["wait", "found in 2 lines"], ["send", ENTER]] });
   assert.equal(result.code, 0, result.stderr);
   assert.equal(result.output, "retry\nuploads\0");

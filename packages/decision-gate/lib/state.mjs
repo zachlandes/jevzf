@@ -3,8 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
+import { StateError } from "./errors.mjs";
 
-export class StateError extends Error {}
 export const clock = { now: Date.now, sleep: (ms, signal) => delay(Math.min(ms, 2147483647), undefined, { signal }) };
 
 // Holders never keep a lock across network or sleep, so a lock this old belongs to a stopped

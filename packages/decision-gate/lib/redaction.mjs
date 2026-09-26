@@ -1,9 +1,10 @@
 import { readFileSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { RedactionError } from "./errors.mjs";
 
 // Adapted from herdr-find 4736dd5 (Apache-2.0)
 
-// Redaction for everything a meaning search sends, in two layers: secret shapes built in here,
+// Redaction for everything a caller sends, in two layers: secret shapes built in here,
 // then the user's own value list (names, customer ids, domains no pattern can know). A fail-closed
 // sweep follows: a request in which any forbidden pattern survives is never sent. No rule, pattern
 // or match is ever printed; a report names rule classes and counts, nothing else.
@@ -14,8 +15,6 @@ import { createHash } from "node:crypto";
 //
 // Patterns are Python-flavoured regular expressions; a leading inline flag group such as (?i)
 // becomes a JavaScript flag. Replacements use Python's \1 and \g<name> group syntax.
-
-export class RedactionError extends Error {}
 
 // A secret word as a whole segment of a key, split by _ or - or a case change, so SECRET_KEY_BASE,
 // apiKey, DBPassword and password_confirmation qualify and tokens, monkey and keyboard do not
@@ -238,19 +237,33 @@ export function createRedactor(spec = { rules: [], forbidden: [] }) {
     }
     return out;
   };
+  const allowed = (text) => forbidden.every((pattern) => !pattern.test(text));
+  // True when nothing forbidden survives and every built-in rule is already applied. Rule
+  // fixpoints only hold for decoded text: on serialized JSON a placeholder such as
+  // "authorization: [redacted]" runs into the next field and would never look redacted
+  const clean = (text) => allowed(text) && BUILT_IN_RULES.every(([, pattern, replacement]) => {
+    if (typeof pattern === "function") return pattern(text, () => {}) === text;
+    pattern.lastIndex = 0;
+    return text.replace(pattern, replacement) === text;
+  });
   return {
     redact,
+    allowed,
+    clean,
+    // The fail-closed check on a serialized request: every decoded key and string must be clean,
+    // and the exact bytes must hold nothing forbidden
+    check(body) {
+      const decoded = (value) => {
+        if (typeof value === "string") return clean(value);
+        if (value === null || typeof value !== "object") return true;
+        return Object.entries(value).every(([key, child]) => clean(key) && decoded(child));
+      };
+      let request;
+      try { request = JSON.parse(body); }
+      catch { throw new RedactionError("request must serialize as JSON; nothing was sent"); }
+      if (!decoded(request) || !allowed(body)) throw new RedactionError("never-send check refused a request; nothing was sent");
+    },
     fingerprint: createHash("sha256").update(JSON.stringify(spec)).digest("hex"),
-    // True when no forbidden shape appears; safe to apply to serialized JSON as well as text
-    allowed: (text) => forbidden.every((pattern) => !pattern.test(text)),
-    // True when nothing forbidden survives and every built-in rule is already applied. Rule
-    // fixpoints only hold for decoded text: on serialized JSON a placeholder such as
-    // "authorization: [redacted]" runs into the next field and would never look redacted
-    clean: (text) => forbidden.every((pattern) => !pattern.test(text)) && BUILT_IN_RULES.every(([, pattern, replacement]) => {
-      if (typeof pattern === "function") return pattern(text, () => {}) === text;
-      pattern.lastIndex = 0;
-      return text.replace(pattern, replacement) === text;
-    }),
     counts: () => ({ ...counts }),
     size: { rules: BUILT_IN_RULES.length + rules.length, forbidden: forbidden.length }
   };

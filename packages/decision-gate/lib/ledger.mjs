@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { appendRecord, clock, locked, replaceFile, StateError } from "./state.mjs";
-import { SpendCapError } from "./meaning/jev.mjs";
+import { SpendCapError, StateError } from "./errors.mjs";
+import { appendRecord, clock, locked, replaceFile } from "./state.mjs";
 
 const HOLD_MS = 10 * 60000;
 const day = (now) => new Date(now).toISOString().slice(0, 10);
@@ -21,7 +21,7 @@ function records(file, now) {
     }
   } catch { throw new StateError("invalid spend ledger; refusing to spend"); }
   // Only today's rows count and only yesterday's runs may still close, so compact the rest away
-  // rather than re-reading every past search under the lock
+  // rather than re-reading every past run under the lock
   const live = new Set([day(now), day(now - 86400000)]);
   const kept = [...latest.values()].filter((row) => live.has(row.day));
   if (lines.length - kept.length > Math.max(256, kept.length)) {
@@ -36,8 +36,8 @@ function used(rows, today, now, except, tool) {
 }
 
 // The key's ceiling counts every tool on the key; a tool's own ceiling can only lower it
-export function createLedger({ stateDir, fingerprint, tool, perDayUsd, toolPerDayUsd = Infinity, time = clock }) {
-  const file = path.join(stateDir, "spend", `${fingerprint}.jsonl`);
+export function createLedger({ dir, fingerprint, tool, perDayUsd, toolPerDayUsd = Infinity, time = clock }) {
+  const file = path.join(dir, `${fingerprint}.jsonl`);
   const available = (rows, today, now, except) => Math.min(perDayUsd - used(rows, today, now, except), toolPerDayUsd - used(rows, today, now, except, tool));
   return {
     remaining() {
@@ -57,10 +57,10 @@ export function createLedger({ stateDir, fingerprint, tool, perDayUsd, toolPerDa
         const usd = typeof total === "function" ? total() : total;
         const now = time.now();
         const rows = records(file, now);
-        if (row.closed) throw new StateError("search run is closed");
+        if (row.closed) throw new StateError("run is closed");
         // A renewed lease or midnight boundary must re-check other processes' holds
         if (!closed && (day(now) !== row.day || now - row.at >= HOLD_MS)) {
-          if (day(now) !== row.day) throw new SpendCapError("UTC day changed; start a new search");
+          if (day(now) !== row.day) throw new SpendCapError("UTC day changed; start a new run");
           row.hold = Math.min(row.hold, Math.max(row.usd, available(rows, row.day, now, row.id)));
         }
         if (!closed && usd > row.hold + 1e-12) throw new SpendCapError("daily spend ceiling reached");
