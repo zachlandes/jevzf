@@ -48,12 +48,10 @@ export function openJev(options = {}) {
     remaining: () => credentials().ledger.remaining(),
     // Answers are filed per provider, model, endpoint and never-send list as well as the caller's
     // scope, so a change to any of them starts a fresh file instead of reusing stale answers
-    // A floating model can change behind its id, so its answers expire within a day; a caller's
-    // ttlMs can only shorten the provider's limit
-    cache({ scope, enabled = true, notice: warn = notice, ttlMs } = {}) {
-      const limit = provider.pinned ? TTL : 86400000;
+    // A floating model can change behind its id, so its answers expire within a day
+    cache({ scope, enabled = true, notice: warn = notice } = {}) {
       return answerCache({
-        ttl: ttlMs === undefined ? limit : Math.min(amount(ttlMs, "cache ttlMs", { positive: true }), limit),
+        ttl: provider.pinned ? TTL : 86400000,
         stateDir: config.stateDir,
         cacheDir: config.cacheDir,
         scope: { provider: provider.name, model: provider.model, endpoint, neverSend: redactor.fingerprint, caller: scope ?? null },

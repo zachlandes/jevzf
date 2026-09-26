@@ -257,7 +257,7 @@ The cache stores probabilities under caller-supplied string keys, and never the 
 Each key is stored as an HMAC under a private random key, so short keys such as source lines cannot be guessed from the stored hashes.
 Entries are filed by the caller's `scope` together with the provider, model, endpoint and never-send list, so changing any of them starts a fresh file.
 Entries hold only key hashes, probabilities and times.
-They expire after 30 days, or a day for an unpinned provider, and `jev.cache({ ttlMs })` can only shorten that; a file mostly made of expired or superseded rows is rewritten on its next write, and files are evicted to keep the cache within 50 MiB.
+They expire after 30 days, or a day for an unpinned provider; a file mostly made of expired or superseded rows is rewritten on its next write, and files are evicted to keep the cache within 50 MiB.
 A cache that cannot be read or written warns once through `notice` and continues without caching, not without spend accounting.
 
 ## Request ownership and persisted state

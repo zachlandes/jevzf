@@ -191,26 +191,19 @@ test("the gateway provider's endpoint takes only a loopback stand-in", async (t)
   assert.throws(() => openJev({ env: { ...f.env, DECISION_GATE_ENDPOINT: "https://ai-gateway.vercel.sh.example/typesafe/v1/systemone" }, tool: "fixture" }), /numeric HTTP loopback URL/);
 });
 
-test("answers cached through the unpinned gateway expire within a day, and a caller can only shorten that", async (t) => {
+test("answers cached through the unpinned gateway expire within a day", async (t) => {
   const hour = 3600000;
   let now = Date.UTC(2026, 8, 26, 12);
   const time = { now: () => now, sleep: async () => {} };
   const scope = { query: "fixture" };
-  const cached = async (config, options = {}) => {
+  const cached = async (config) => {
     const jev = setup(t, { config }).open({ time });
     now = Date.UTC(2026, 8, 26, 12);
-    await jev.cache({ scope, ...options }).put([["item", 0.4]]);
-    return (hours) => { now = Date.UTC(2026, 8, 26, 12) + hours * hour; return jev.cache({ scope, ...options }).get("item"); };
+    await jev.cache({ scope }).put([["item", 0.4]]);
+    return (hours) => { now = Date.UTC(2026, 8, 26, 12) + hours * hour; return jev.cache({ scope }).get("item"); };
   };
   const gateway = await cached({ provider: "vercel-ai-gateway" });
   assert.deepEqual([gateway(23), gateway(25)], [0.4, undefined]);
-  const longer = await cached({ provider: "vercel-ai-gateway" }, { ttlMs: 10 * 24 * hour });
-  assert.deepEqual([longer(23), longer(25)], [0.4, undefined]);
-  const shorter = await cached({ provider: "vercel-ai-gateway" }, { ttlMs: hour });
-  assert.deepEqual([shorter(0.5), shorter(2)], [0.4, undefined]);
   const pinned = await cached(undefined);
   assert.deepEqual([pinned(25), pinned(29 * 24), pinned(31 * 24)], [0.4, 0.4, undefined]);
-  const pinnedShorter = await cached(undefined, { ttlMs: hour });
-  assert.equal(pinnedShorter(2), undefined);
-  assert.throws(() => setup(t).open().cache({ scope, ttlMs: 0 }), /cache ttlMs must be a positive number/);
 });
