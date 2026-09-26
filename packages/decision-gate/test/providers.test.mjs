@@ -57,6 +57,44 @@ test("each provider sends only its own key, only to its own endpoint", async (t)
   assert.deepEqual(f.sent.map(({ url, authorization }) => [url, authorization]), [[TYPESAFE, "Bearer fixture-typesafe"]]);
 });
 
+test("a key goes only to the provider it belongs to, with no fallback to another's", async (t) => {
+  const write = (dir, name, text) => { writeFileSync(path.join(dir, name), text, { mode: 0o600 }); return path.join(dir, name); };
+  // TypeSafe's key_file, key variable and a caller's TypeSafe key never reach the gateway
+  const gateway = setup(t, { config: { provider: "vercel-ai-gateway", key_file: "typesafe-key" }, env: { AI_GATEWAY_API_KEY: "" } });
+  write(gateway.dir, "typesafe-key", "file-typesafe\n");
+  const typesafeKey = { provider: "typesafe", file: write(gateway.dir, "caller-typesafe-key", "caller-typesafe\n") };
+  for (const key of [undefined, typesafeKey]) {
+    const jev = gateway.open({ key });
+    assert.deepEqual([jev.status().missing, jev.status().keyEnv], [true, "AI_GATEWAY_API_KEY"]);
+    assert.match(jev.status().reason, /^a Vercel AI Gateway API key is needed: export AI_GATEWAY_API_KEY or set key_file in the config's vercel-ai-gateway section; nothing was sent$/);
+    await assert.rejects(ask(jev, request("public")), /Vercel AI Gateway API key is needed/);
+  }
+  assert.equal(gateway.sent.length, 0);
+
+  // The gateway's own key file sits in its section, and a caller's gateway key wins over it
+  const sectioned = setup(t, { config: { provider: "vercel-ai-gateway", key_file: "typesafe-key", "vercel-ai-gateway": { key_file: "gateway-key" } }, env: { AI_GATEWAY_API_KEY: "" } });
+  write(sectioned.dir, "typesafe-key", "file-typesafe\n");
+  write(sectioned.dir, "gateway-key", "file-gateway\n");
+  await ask(sectioned.open(), request("public"));
+  await ask(sectioned.open({ key: typesafeKey }), request("public"));
+  await ask(sectioned.open({ key: { provider: "vercel-ai-gateway", value: "caller-gateway" } }), request("public"));
+  assert.deepEqual(sectioned.sent.map(({ url, authorization }) => [url, authorization]), [[GATEWAY, "Bearer file-gateway"], [GATEWAY, "Bearer file-gateway"], [GATEWAY, "Bearer caller-gateway"]]);
+
+  // The reverse: the gateway's key file, key variable and a caller's gateway key never reach TypeSafe
+  const native = setup(t, { config: { "vercel-ai-gateway": { key_file: "gateway-key" } }, env: { TYPESAFE_API_KEY: "" } });
+  write(native.dir, "gateway-key", "file-gateway\n");
+  for (const key of [undefined, { provider: "vercel-ai-gateway", value: "caller-gateway" }]) {
+    const jev = native.open({ key });
+    assert.match(jev.status().reason, /^a TypeSafe API key is needed: export TYPESAFE_API_KEY or set key_file; nothing was sent$/);
+    await assert.rejects(ask(jev, request("public")), /TypeSafe API key is needed/);
+  }
+  assert.equal(native.sent.length, 0);
+
+  assert.throws(() => setup(t).open({ key: { value: "untagged" } }), /key needs its provider/);
+  assert.throws(() => setup(t).open({ key: { provider: "vercel", value: "fixture" } }), /key needs its provider/);
+  assert.throws(() => setup(t, { config: { "vercel-ai-gateway": { key_file: "k", in_flight: 1 } } }).open(), /holds only its key_file/);
+});
+
 test("the gate owns the wire model, and the gateway's is floating", async (t) => {
   const f = setup(t, { config: { provider: "vercel-ai-gateway" } });
   const jev = f.open();
@@ -65,6 +103,8 @@ test("the gate owns the wire model, and the gateway's is floating", async (t) =>
   await ask(jev, request("pinned id", PINNED_MODEL));
   assert.deepEqual(f.sent.map(({ body }) => body.model), ["typesafe-ai/jev", "typesafe-ai/jev"]);
   await assert.rejects(ask(jev, request("other", "jev-2.0.0")), /model must be omitted or jev-1.13.0/);
+  await assert.rejects(ask(jev, request("wire id", "typesafe-ai/jev")), /model must be omitted or jev-1.13.0/);
+  assert.equal(f.sent.length, 2);
 
   const native = setup(t);
   const pinned = native.open();
@@ -121,15 +161,18 @@ test("the never-send check refuses before any gateway attempt", async (t) => {
   assert.equal(f.sent.length, 0);
 });
 
-test("limits default per provider, and a provider's own section overrides the shared one", (t) => {
+test("limits default per provider, unsectioned limits are TypeSafe's, and a provider's own section overrides them", (t) => {
   const limits = (config, env) => setup(t, { config, env }).open().config.limits;
   const pick = ({ requestsPerMinute, tokensPerSecond, inFlight, share }) => ({ requestsPerMinute, tokensPerSecond, inFlight, share });
   assert.deepEqual(pick(limits()), { requestsPerMinute: 1200, tokensPerSecond: 250000, inFlight: 4, share: 0.8 });
   assert.deepEqual(pick(limits({ provider: "vercel-ai-gateway" })), { requestsPerMinute: 60, tokensPerSecond: 250000, inFlight: 2, share: 0.8 });
+  const shared = { requests_per_minute: 1200, tokens_per_second: 250000, share: 0.5, in_flight: 4 };
+  assert.deepEqual(pick(limits({ provider: "vercel-ai-gateway", limits: shared })), { requestsPerMinute: 60, tokensPerSecond: 250000, inFlight: 2, share: 0.8 });
+  assert.deepEqual(pick(limits({ limits: { ...shared, requests_per_minute: 600 } })), { requestsPerMinute: 600, tokensPerSecond: 250000, inFlight: 4, share: 0.5 });
   const config = { provider: "vercel-ai-gateway", limits: { requests_per_minute: 30, in_flight: 3, "vercel-ai-gateway": { in_flight: 1, share: 1 }, typesafe: { in_flight: 8 } } };
-  assert.deepEqual(pick(limits(config)), { requestsPerMinute: 30, tokensPerSecond: 250000, inFlight: 1, share: 1 });
+  assert.deepEqual(pick(limits(config)), { requestsPerMinute: 60, tokensPerSecond: 250000, inFlight: 1, share: 1 });
   assert.equal(limits(config, { DECISION_GATE_IN_FLIGHT: "2" }).inFlight, 2);
-  assert.equal(limits({ ...config, provider: "typesafe" }).inFlight, 8);
+  assert.deepEqual(pick(limits({ ...config, provider: "typesafe" })), { requestsPerMinute: 30, tokensPerSecond: 250000, inFlight: 8, share: 0.8 });
 });
 
 test("the gateway provider's endpoint takes only a loopback stand-in", async (t) => {

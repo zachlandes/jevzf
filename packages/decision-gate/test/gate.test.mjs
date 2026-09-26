@@ -140,7 +140,7 @@ test("explicit key file takes precedence over the environment and enforces mode 
   const file = path.join(f.dir, "key");
   writeFileSync(file, "private-file-key", { mode: 0o600 });
   let authorization;
-  const jev = openJev({ env: f.env, tool: "fixture", key: { file }, maxRetries: 0, fetch: async (_url, init) => {
+  const jev = openJev({ env: f.env, tool: "fixture", key: { provider: "typesafe", file }, maxRetries: 0, fetch: async (_url, init) => {
     authorization = init.headers.Authorization ?? init.headers.authorization;
     return new Response(JSON.stringify({ model: PINNED_MODEL, answers: { q: { type: "noul", noul: 0.5 } }, usage: { input_tokens: 100 } }));
   } });
@@ -149,7 +149,7 @@ test("explicit key file takes precedence over the environment and enforces mode 
   await run.close();
   assert.equal(authorization, "Bearer private-file-key");
   chmodSync(file, 0o644);
-  const unsafe = openJev({ env: f.env, tool: "fixture", key: { file } });
+  const unsafe = openJev({ env: f.env, tool: "fixture", key: { provider: "typesafe", file } });
   assert.equal(unsafe.status().ok, false);
   const refused = unsafe.run();
   await assert.rejects(refused.ask(request("public")), /chmod 600/);

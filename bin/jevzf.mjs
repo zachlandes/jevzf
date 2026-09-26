@@ -27,7 +27,8 @@ jump); in meaning, type what you mean and press enter.
   --version        Show version
   -- QUERY         Query beginning with a dash
 
-Meaning search needs only TYPESAFE_API_KEY.
+Meaning search needs only TYPESAFE_API_KEY, or AI_GATEWAY_API_KEY with the
+experimental vercel-ai-gateway provider.
 Config: ~/.config/decision-gate/config.json, shared with other decision-gate tools.
 jevzf's own key: key_file in ~/.config/jevzf/config.json (JEVZF_CONFIG).
 Limits: DECISION_GATE_RPM, DECISION_GATE_TPS, DECISION_GATE_IN_FLIGHT; spend:
@@ -94,8 +95,9 @@ async function main() {
   const jev = openJev({ notice });
   const status = jev.status();
   if (!opts.estimate && status.missing) {
-    throw new UsageError(`meaning search needs a TypeSafe API key; nothing was sent.
-  export TYPESAFE_API_KEY=...   (get one at console.typesafe.ai/settings/keys)
+    const where = jev.config.provider === "typesafe" ? "   (get one at console.typesafe.ai/settings/keys)" : "";
+    throw new UsageError(`meaning search needs a ${status.label} API key; nothing was sent.
+  export ${status.keyEnv}=...${where}
   To see what this search would cost first: jevzf --estimate ${shellQuote(opts.query.replace(/[\x00-\x1f\x7f]/g, " "))}`);
   }
   if (!opts.estimate && !status.ok) throw new UsageError(status.reason);
