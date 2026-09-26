@@ -74,7 +74,7 @@ export function openJev(options = {}) {
         // The ledger reads the committed total inside its lock, so concurrent attempts never
         // persist an older total over a newer one
         const book = () => lease.book(() => budget.committedUsd());
-        responder = provider.respond({ key, budget, limiter, book, assertSafe: (body) => redactor.check(body), endpoint, fetchImpl: options.fetch, maxRetries: options.maxRetries });
+        responder = provider.respond({ key, budget, limiter, book, assertSafe: (body) => redactor.check(body), endpoint, fetchImpl: options.fetch, maxRetries: options.maxRetries, timeoutMs: options.timeoutMs });
       })().catch((error) => { ready = undefined; throw error; });
       return Object.freeze({
         ask(request, { signal } = {}) {
