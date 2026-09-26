@@ -94,12 +94,23 @@ function redactPairs(text, counted) {
 // An authorization or auth key, as a header, a JSON or YAML key, or a query or shell parameter.
 // Prose such as "work authorization: F-1 OPT" also has one, so its value decides
 const AUTH_KEY = /(?<![A-Za-z0-9])(?:proxy-)?auth(?:orization)?["'`]?\s*[:=]+\s*/gi;
-// HTTP authentication schemes, registered and common vendor ones, when a value follows
-const AUTH_SCHEME = /^(?:basic|bearer|token|digest|negotiate|ntlm|hoba|mutual|vapid|scram-sha-(?:1|256)|aws4-hmac-sha256|dpop|gnap|oauth|hawk|signature|apikey|api-key|sso-key|key)[ \t]+(?=[^\s"'`])/i;
-// A long run with no spaces mixing at least two of lowercase, uppercase and digits, as keys,
-// hex digests and base64 do; a hyphenated or capitalised word does not
+// HTTP authentication schemes, registered and common vendor ones
+const AUTH_SCHEME = /^(?:basic|bearer|token|digest|negotiate|ntlm|hoba|mutual|vapid|scram-sha-(?:1|256)|aws4-hmac-sha256|dpop|gnap|oauth|hawk|signature|apikey|api-key|sso-key|key)[ \t]+/i;
+// Several schemes are also English words, so what follows decides: auth-params such as Digest's,
+// a placeholder an earlier rule wrote, or a token68 run that is not a plain word such as "required".
+// A single letter counts, as in "Bearer x"
+function schemeCredential(value) {
+  const scheme = AUTH_SCHEME.exec(value);
+  if (!scheme) return false;
+  const rest = value.slice(scheme[0].length);
+  if (/^[A-Za-z][\w-]*\s*=/.test(rest) || /^\[[a-z ]+\]/.test(rest)) return true;
+  const run = /^[A-Za-z0-9._~+/-]+=*/.exec(rest)?.[0];
+  return Boolean(run) && !/^[A-Za-z][a-z]+$/.test(run);
+}
+// A long run with no spaces holding a letter and a digit, as keys and hex digests do, or a base64
+// marker; hyphen- or slash-joined words such as "OPT-STEM-Extension" are not tokens
 const TOKEN_CHARS = /^[A-Za-z0-9._~+/=-]{16,}$/;
-const tokenShaped = (value) => TOKEN_CHARS.test(value) && [/[a-z]/, /[A-Z]/, /[0-9]/].filter((c) => c.test(value)).length >= 2;
+const tokenShaped = (value) => TOKEN_CHARS.test(value) && /[A-Za-z]/.test(value) && /[0-9+]|=$/.test(value);
 
 // The value after an authorization or auth key is redacted when it is a scheme followed by a
 // credential, which may carry parameters, so it runs to the end of its quotes or line, or when it
@@ -120,7 +131,7 @@ function redactAuthorization(text, counted) {
       let close = start + 1;
       while (close < stop && text[close] !== quote) close += text[close] === "\\" ? 2 : 1;
       const inner = text.slice(start + 1, Math.min(close, stop));
-      if (AUTH_SCHEME.test(inner) || tokenShaped(inner)) {
+      if (schemeCredential(inner) || tokenShaped(inner)) {
         end = Math.min(close + 1, stop);
         value = `${quote}[redacted]${quote}`;
       }
@@ -128,7 +139,7 @@ function redactAuthorization(text, counted) {
       // A quote opened earlier on the line, as around a curl -H header, ends the value
       const { quotes } = context(start);
       const closing = (c) => QUOTES.includes(c) && quotes.has(c);
-      if (AUTH_SCHEME.test(text.slice(start, stop))) {
+      if (schemeCredential(text.slice(start, stop))) {
         end = start;
         while (end < stop && !closing(text[end])) end += text[end] === "\\" ? 2 : 1;
         end = Math.min(end, stop);

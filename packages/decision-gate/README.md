@@ -96,9 +96,10 @@ When the state is most of the request, as a job posting usually is, three questi
 Every request is checked, including each retry, and one containing a forbidden value is refused with a `RedactionError` rather than rewritten.
 The built-in rules cover known secret formats and email addresses.
 They also rewrite the value after an `authorization`, `proxy-authorization` or `auth` key, as a header, a JSON or YAML key or a parameter, in only two shapes.
-One is an HTTP authentication scheme followed by a value, such as `Basic`, `Bearer`, `Token`, `Digest`, `Negotiate` or `AWS4-HMAC-SHA256`, redacted with its parameters to the end of its quotes or line.
-The other is a token-shaped value: a run of 16 or more characters with no spaces that mixes at least two of lowercase, uppercase and digits.
-Any other value is kept, so "work authorization: F-1 OPT", "Work Authorization: US citizen" and a posting's "Authorization: must be authorized to work" reach the service unchanged.
+One is an HTTP authentication scheme, such as `Basic`, `Bearer`, `Token`, `Digest`, `Negotiate` or `AWS4-HMAC-SHA256`, followed by a credential, redacted with its parameters to the end of its quotes or line.
+A credential there is an auth-parameter list such as `username="u"`, a placeholder an earlier rule wrote such as `[token]`, or a run with no spaces that is not a plain word: it holds a digit, a capital after its first letter or one of `+ / = . _ ~ -`, or is a single character.
+The other is a token-shaped value: a run of 16 or more characters with no spaces that holds a letter and either a digit, a `+` or a trailing `=`.
+Any other value is kept, so "work authorization: F-1 OPT", "Work Authorization: US citizen", "OPT-STEM-Extension", "PermanentResident" and a posting's "Authorization: must be authorized to work" or "Authorization: Signature required on the I-9" reach the service unchanged.
 Redact text with `jev.redactor.redact` before putting it in a request.
 
 ## Routes other than TypeSafe

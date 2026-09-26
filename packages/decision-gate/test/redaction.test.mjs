@@ -255,6 +255,17 @@ test("an authorization or auth credential is redacted in header and JSON text, b
     "auth: required",
     "auth=internationalization",
     "auth: Basic",
+    "work_authorization: OPT-STEM-Extension",
+    '{"work_authorization": "US-Citizen-No-Sponsorship"}',
+    "Work authorization: PermanentResident",
+    "work authorization: Canadian/US-dual-citizen",
+    "authorization: US-citizen-or-green-card",
+    "Authorization: Signature required on the I-9",
+    "Work Authorization: Basic eligibility required",
+    "Work authorization: Key requirement for this role",
+    "Employment Authorization: Mutual agreement",
+    "authorization: Digest of eligibility rules",
+    "work authorization: OAuth not applicable",
     'headers = {"Authorization": f"Bearer {token}"}',
     "Authorization: [redacted]"
   ];
