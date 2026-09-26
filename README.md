@@ -221,7 +221,7 @@ Meaning search itself stays inside jevzf and has no public import path.
 npm ci --ignore-scripts
 npm test
 npm run lint
-npm pack --dry-run
+npm pack --dry-run --workspaces --include-workspace-root
 ```
 
 The repository is an npm workspace: jevzf at the root and decision-gate in `packages/decision-gate`, and `npm test` runs both.
@@ -234,9 +234,14 @@ CI runs on Node.js 22, 24 and 26.
 
 Releases are cut by [release-please](https://github.com/googleapis/release-please) from [Conventional Commits](https://www.conventionalcommits.org/) on `main`.
 Pull request titles become the squash commit, so they must be Conventional Commits too (`feat: …`, `fix: …`).
-release-please keeps a standing release pull request that bumps `package.json` and writes `CHANGELOG.md`; never edit the changelog by hand.
-Merging that pull request tags the release, and the same workflow publishes it to npm with [trusted publishing](https://docs.npmjs.com/trusted-publishers) and provenance.
-No npm token is stored anywhere; npm trusts `.github/workflows/release-please.yml` in this repository, so renaming that file breaks publishing.
+The repository releases two packages, each with its own version and changelog: jevzf from the root, with tags `jevzf-v…`, and decision-gate from `packages/decision-gate`, with tags `decision-gate-v…`.
+release-please keeps one standing release pull request that bumps both `package.json` files and writes each `CHANGELOG.md`; never edit a changelog by hand.
+A commit counts for jevzf unless it only touches `packages/`, and for decision-gate when it touches `packages/decision-gate`.
+Both are 0.x, so a breaking change raises the minor version rather than making 1.0.0.
+When decision-gate releases, the workspace plugin raises jevzf's dependency on it and releases jevzf as a patch, so the two never drift apart.
+Merging that pull request tags the releases, and the same workflow publishes them to npm with [trusted publishing](https://docs.npmjs.com/trusted-publishers) and provenance, decision-gate first because jevzf depends on it.
+No npm token is stored anywhere; npm trusts `.github/workflows/release-please.yml` in this repository for each package, so renaming that file breaks publishing.
+npm only accepts a trusted publisher for a package that already exists, so each package's first version is published by hand before its trusted link is added.
 
 ## See also
 
