@@ -138,7 +138,7 @@ The built-in filter recognises known formats only:
 - Credentials in URLs and email addresses
 - The value in pairs whose key contains password, passwd, pwd, secret, token, apikey or key as a whole segment (split by `_`, `-` or a case change, so `SECRET_KEY_BASE`, `apiKey`, `DBPassword` and `password_confirmation` count and `tokens` or `monkey` do not), after `=`, `:`, `:=`, `=>` or a comparison, whatever the spacing:
   - A quoted value is always redacted.
-  - A bare value is redacted unless it is plainly code: an identifier with no digits, a `$VAR` or `${VAR}` reference, member access or indexing such as `os.environ['KEY']`, or a call.
+  - A bare value is redacted unless it is plainly code: an identifier with no digits; anything starting with `$` followed by letters, such as `$VAR` or `${VAR}`; dotted member access whose segments may contain digits, or indexing with anything inside the brackets, such as `os.environ['KEY']`; or any value containing `(`, which counts as a call.
     So `password = hunter2`, `aws_secret_access_key = wJal...` and `--token=abc123` are redacted, while `password=pw`, `token: string` and `api_key = get_key()` pass.
   - A bare value ends at whitespace, a comma, or a quote or bracket that closes one opened earlier on the line; a stray quote or bracket stays inside it.
 
@@ -149,6 +149,13 @@ Known limits:
 - A secret made only of letters, with no digits or punctuation, looks like an identifier and is sent, for example `password = hunter`.
 - A secret under a key that names no secret word, such as `DB_PASS=...`, or with no `=` or `:` between key and value, such as `--password hunter2`, is sent.
 - A number under a secret-named key is redacted, so `tokenCount = 5` loses its value.
+- A typed declaration with a quoted default is sent, because the type name is taken as the value, for example `password: str = "hunter2secret"`.
+- A value containing `(` is treated as a call and sent, for example `DB_PASSWORD=K9#m(Lq2!x`.
+- A dotted value is treated as member access and sent, for example `password=Summer2024.Winter`.
+- A value starting with `$` is treated as a variable and sent, for example `password=$ecretPass`.
+- A bracketed value is treated as indexing and sent, for example `password=a[hunter2secret]`.
+- An apostrophe earlier on the line, as in prose like "don't", can shift where a value ends, so part of it is sent.
+- On the over-redaction side, `rg -n` output from an extensionless file named after a secret word loses its content, for example `bin/token:12:#!/bin/sh`.
 
 Output contains the original local lines, not redacted replacements.
 
