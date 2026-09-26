@@ -216,7 +216,7 @@ For private values no pattern can know, such as names, customer ids or internal 
 Patterns are JavaScript regular expressions that also accept a leading `(?i)`, `(?m)` or `(?s)` and `\1` or `\g<name>` replacements; backslashes need escaping in JSON.
 No filter can promise to find every private detail, so choose what you pipe in.
 
-The answer cache in `~/.cache/decision-gate/answers` stores keyed hashes of lines and their probabilities for 30 days, never the query or the text, and stays under 50 MiB.
+The answer cache in `~/.cache/decision-gate/answers` stores keyed hashes of lines and their probabilities for 30 days, or a day through the unpinned `vercel-ai-gateway` provider, never the query or the text, and stays under 50 MiB.
 Spend and rate records in `~/.local/state/decision-gate` hold times, amounts and a fingerprint of the key, never the key or any text.
 Either directory can be deleted while no search is running; deleting `spend` also forgets today's spending.
 

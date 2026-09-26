@@ -74,7 +74,7 @@ Only then does the ask fail, with a `ServiceError` whose `status` is `429`.
 
 **It keeps under the account's rate limit before the service has to say so.**
 Requests wait for room under 80% (`limits.share`) of the account's `requests_per_minute` and `tokens_per_second`, at most 4 (`limits.in_flight`) are open at once, and a request of 32,000 tokens or more goes one at a time.
-Every key on the machine shares these limits, because TypeSafe counts them per account, not per key.
+Every TypeSafe key on the machine shares these limits, because TypeSafe counts them per account, not per key.
 
 **The same question over the same state is answered once.**
 The answer cache stores each answer's probability under a key you choose, such as the question name plus the state, and `cache.get` returns it on the next ask instead of sending the request again.
