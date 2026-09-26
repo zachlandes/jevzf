@@ -348,22 +348,24 @@ test("readable file paths, including digit-bearing camelCase names and @2x asset
     "./packages/ui/src/components/Grid/Grid12Column/Grid12ColumnLayout.stories.tsx"
   ];
   assert.equal(paths.length, 20);
-  assert.equal((await f.run(paths.join("\n"))).code, 1);
-  assert.deepEqual(sentItems(f.requests).sort(), [...paths].sort());
+  const kebab = ["./src/tasks/pk-generate-primary-key-migrations.ts", "./scripts/sk-learn-model-v2-evaluation.py", "./docs/rk-2024-release-notes-draft.md", "./src/sk-integration-test-fixtures/setup.ts"];
+  assert.equal((await f.run([...paths, ...kebab].join("\n"))).code, 1);
+  assert.deepEqual(sentItems(f.requests).sort(), [...paths, ...kebab].sort());
 });
 
 test("each known secret format is redacted in the request, with the original line printed", async (t) => {
   const f = await fixture(t);
   // Assembled at run time so the fake credentials never appear whole in the source
   const secrets = {
-    "[api key]": ["s" + "k-proj-" + "Q".repeat(24), "s" + "k_live_" + "Z".repeat(24)],
+    "[api key]": ["s" + "k-proj-" + "Q1".repeat(12), "s" + "k-ant-api03-" + "R2".repeat(20), "s" + "k_live_" + "Z".repeat(24)],
     "[github token]": ["gh" + "p_" + "A".repeat(36), "gh" + "o_" + "B".repeat(36), "gh" + "s_" + "C".repeat(36), "github" + "_pat_" + "D".repeat(40)],
     "[gitlab token]": ["gl" + "pat-" + "E".repeat(20)],
     "[npm token]": ["np" + "m_" + "F".repeat(36)],
     "[slack token]": ["xo" + "xb-1234-" + "G".repeat(20), "xo" + "xp-5678-" + "H".repeat(20), "xo" + "xa-9012-" + "I".repeat(20)],
     "[aws key]": ["AK" + "IA" + "J".repeat(16), "AS" + "IA" + "K".repeat(16)],
     "[google key]": ["AI" + "za" + "L".repeat(35)],
-    "[token]": ["ey" + "JhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJlc2ln"]
+    "[token]": ["ey" + "JhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJlc2ln"],
+    "[email]": ["alice@" + "163.com", "someone@" + "example.com"]
   };
   const lines = Object.values(secrets).flat().map((secret, i) => `login ${i} ${secret}`);
   const result = await f.run(lines.join("\n"));
@@ -386,17 +388,29 @@ test("secret assignments send the key but not the value, quoted or bare", async 
     ['login secret: "two words here"', 'login secret: "[redacted]"'],
     ["login key = 'it is \"quoted\"'", "login key = '[redacted]'"],
     ['login {"token": "abc def", "user": "zed"}', 'login {"token": "[redacted]", "user": "zed"}'],
-    ["login api_key=xyz", "login api_key=[redacted]"]
+    ["login api_key=xyz", "login api_key=[redacted]"],
+    ["login 'password' => 'hunter2secret',", "login 'password' => '[redacted]',"],
+    ['login :password => "rubysecret"', 'login :password => "[redacted]"'],
+    ['login if password == "comparedsecret"', 'login if password == "[redacted]"'],
+    ["login password: correct horse battery staple", "login password: [redacted]"],
+    ["login DB_PASSWORD=abc;def'ghi", "login DB_PASSWORD=[redacted]"],
+    ["login password=[bracketed]secret", "login password=[redacted]"],
+    ['login password="unterminated secret', 'login password="[redacted]"'],
+    ['login "password": "ab\\"cdsecret"', 'login "password": "[redacted]"']
   ];
   assert.equal((await f.run(cases.map(([line]) => line).join("\n"))).code, 0);
   assert.deepEqual(sentItems(f.requests).sort(), cases.map(([, sent]) => sent).sort());
 });
 
-for (const [name, terminated] of [["a private key piped as lines spanning batches", true], ["a private key cut off before its END line", false]]) {
+for (const [name, kind, terminated] of [
+  ["a private key piped as lines spanning batches", "RSA PRIVATE KEY", true],
+  ["a private key cut off before its END line", "RSA PRIVATE KEY", false],
+  ["a PGP private key block piped as lines", "PGP PRIVATE KEY BLOCK", true]
+]) {
   test(`${name} sends none of its body lines`, async (t) => {
     const f = await fixture(t);
     const body = Array.from({ length: 30 }, (_, i) => `${String.fromCharCode(65 + (i % 26))}${"MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC".slice(0, 40)}${i}`);
-    const block = ["-----BEGIN RSA PRIVATE KEY-----", ...body, ...(terminated ? ["-----END RSA PRIVATE KEY-----"] : [])];
+    const block = [`-----BEGIN ${kind}-----`, ...body, ...(terminated ? [`-----END ${kind}-----`] : [])];
     const filler = Array.from({ length: 20 }, (_, i) => `login ${i}`);
     const result = await f.run([...filler.slice(0, 10), ...block, ...filler.slice(10)].join("\n"));
     assert.equal(result.code, 0);
