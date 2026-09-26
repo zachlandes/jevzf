@@ -84,7 +84,7 @@ It also does not merge two identical asks started at the same moment, so check t
 **A daily spend ceiling per key.**
 Every tool on the machine that uses the same key shares one daily ceiling, `spend.per_day_usd` (USD 0.20 by default, reset at UTC midnight), and each run has its own ceiling, `spend.per_run_usd` (USD 0.02 by default).
 A request that does not fit under them is not sent, and the ask fails with a `SpendCapError`.
-At the pinned model's price of USD 0.042 per million input tokens, with output free, the default daily ceiling covers about 4.7 million input tokens; raise it in the config for more.
+At the price 0.1.0 records for the pinned model, USD 0.042 per million input tokens with output free, the default daily ceiling covers about 4.7 million input tokens; raise it in the config for more.
 
 **Several questions over one state go in one call.**
 A Jev request carries one `state` and any number of named `questions`, and the gate sends it as one request: one rate-limit slot, and the state's input tokens paid once however many questions it asks.
@@ -94,13 +94,10 @@ When the state is most of the request, as a job posting usually is, three questi
 Every request is checked, including each retry, and one containing a forbidden value is refused with a `RedactionError` rather than rewritten.
 The built-in rules cover known secret formats and email addresses; redact text with `jev.redactor.redact` before putting it in a request.
 
-## Using Jev through Vercel AI Gateway
+## Routes other than TypeSafe
 
-decision-gate 0.1.0 talks to TypeSafe directly with `TYPESAFE_API_KEY`; Vercel AI Gateway support is planned.
-
-A `429` from the gateway reading "The upstream provider is currently experiencing high demand" is the gateway shedding the request, often before any provider sees it, so lowering your own request rate may not clear it.
-Using a TypeSafe key directly with decision-gate avoids that path, and gives you one shared rate window and `429` pause across every process on the machine, plus a daily spend ceiling.
-Through the gateway, Jev is served under the floating id `typesafe-ai/jev` and cannot be pinned to `jev-1.13.0`.
+decision-gate 0.1.0 sends requests to TypeSafe directly with `TYPESAFE_API_KEY`; other routes, such as AI gateways, are planned.
+Handling a `429` belongs to the gate, not the route: a `429` pauses every caller on the account and the request backs off before retrying.
 
 ## Opening the gate
 
