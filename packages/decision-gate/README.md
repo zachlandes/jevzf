@@ -13,7 +13,7 @@ And nothing stops a runaway loop before the bill does.
 
 decision-gate is the one place your code sends a Jev request through.
 It waits for room under the account's rate limit, pauses every caller together when the service says to slow down, checks the request against a daily spend ceiling for your key, sends it through TypeSafe's own SDK and records what it cost.
-It also gives you an answer cache so a question you have already asked is not asked again.
+It also gives you an answer cache, so a question answered in an earlier run, or earlier in the same run, is not asked again.
 It never calls a generative model and never stores request text.
 
 ## Quick start
@@ -40,7 +40,8 @@ async function screen(posting, student) {
   // Emails and known secret formats are replaced before anything is sent or cached
   const state = { posting: jev.redactor.redact(posting), student: jev.redactor.redact(student) };
   const key = (name) => `${name}\n${JSON.stringify(state)}`;
-  const missing = Object.keys(questions).filter((name) => cache.get(key(name)) === undefined);
+  const result = Object.fromEntries(Object.keys(questions).map((name) => [name, cache.get(key(name))]));
+  const missing = Object.keys(result).filter((name) => result[name] === undefined);
   if (missing.length) {
     // One request answers every missing question over the same state
     const answer = await run.ask({
@@ -48,9 +49,10 @@ async function screen(posting, student) {
       state,
       questions: Object.fromEntries(missing.map((name) => [name, questions[name]]))
     });
-    await cache.put(missing.map((name) => [key(name), answer.answers[name].noul]));
+    for (const name of missing) result[name] = answer.answers[name].noul;
+    await cache.put(missing.map((name) => [key(name), result[name]]));
   }
-  return Object.fromEntries(Object.keys(questions).map((name) => [name, cache.get(key(name))]));
+  return result;
 }
 
 try {
@@ -75,7 +77,9 @@ Every key on the machine shares these limits, because TypeSafe counts them per a
 The answer cache stores each answer's probability under a key you choose, such as the question name plus the state, and `cache.get` returns it on the next ask instead of sending the request again.
 Answers last 30 days, and changing the cache's `scope`, the model or the never-send list starts fresh.
 The cache stores only keyed hashes and numbers, never the state or question text.
-It deduplicates across runs and processes, not two identical asks started at the same moment, so check the cache before sending a batch.
+A cache sees every answer stored before it was opened plus its own `put`s, so it removes repeats across later runs and within a run.
+It does not see answers another process stores after it was opened, so two processes screening at the same time, or a long-lived cache opened earlier, can each pay for the same question; open a fresh cache for each batch, or screen from one process.
+It also does not merge two identical asks started at the same moment, so check the cache before sending a batch.
 
 **A daily spend ceiling per key.**
 Every tool on the machine that uses the same key shares one daily ceiling, `spend.per_day_usd` (USD 0.20 by default, reset at UTC midnight), and each run has its own ceiling, `spend.per_run_usd` (USD 0.02 by default).
