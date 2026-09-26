@@ -135,7 +135,7 @@ Answers cached through an unpinned provider expire within a day, because the mod
 `notice` receives one-line warnings and defaults to a no-op.
 `spend` accepts `perRunUsd` and `perDayUsd`, defaulting to the config's USD 0.02 and USD 0.20.
 The config's daily ceiling covers the key across every tool that uses it; a caller's `perDayUsd` can only lower what that tool spends, never add to the key's.
-`maxRetries` is how many times a failed request is retried, 2 by default.
+`maxRetries` is how many times a failed request is retried, 2 by default, or 1 through the gateway.
 `fetch` replaces the network for tests; the destination is still checked.
 
 The returned object holds `status()`, `config`, `redactor`, `remaining()`, `cache()` and `run()`.
