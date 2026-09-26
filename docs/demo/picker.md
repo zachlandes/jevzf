@@ -1,7 +1,7 @@
 # jevzf picker: stock fzf with a meaning mode
 
-*2026-09-26T07:23:10Z by Showboat 0.6.1*
-<!-- showboat-id: 37700d4c-202a-4fcf-a3f7-a0bdac403abb -->
+*2026-09-26T08:01:09Z by Showboat 0.6.1*
+<!-- showboat-id: f4ffaacf-c49c-4932-82c0-8e79ce99e49b -->
 
 `cmd | jevzf` opens stock fzf over piped text with three modes: fuzzy, exact and meaning. The screens below are the real picker in fzf, captured as text from a hidden tmux session and driven through the picker's own fzf socket against a loopback stand-in for TypeSafe, so nothing is sent and nothing is spent. Search times and the spinner are replaced with `N.N s` and `*` so the blocks re-run identically.
 
@@ -117,19 +117,263 @@ filter>                                                                     3/3
 These are the captain's own screenshots, taken with `scripts/legibility-shots.sh` in WezTerm and Terminal.app. On light themes they showed the header in fzf's fixed grey-blue fading into the background, so the header now uses the terminal's own text colour; the shots below are from before that change.
 
 ```bash {image}
-![Before: WezTerm Builtin Light, meaning mode, faint grey-blue header](wezterm-light-80x24-ask.png)
+![Before: WezTerm Builtin Light, meaning mode, faint grey-blue header](before-wezterm-light-80x24-ask.png)
 ```
 
-![Before: WezTerm Builtin Light, meaning mode, faint grey-blue header](468dfa0e-2026-09-26.png)
+![Before: WezTerm Builtin Light, meaning mode, faint grey-blue header](292db550-2026-09-26.png)
 
 ```bash {image}
-![Before: WezTerm Solarized Light, results, faint header](wezterm-solarized-light-80x24-results.png)
+![Before: WezTerm Solarized Light, results, faint header](before-wezterm-solarized-light-80x24-results.png)
 ```
 
-![Before: WezTerm Solarized Light, results, faint header](a28172dd-2026-09-26.png)
+![Before: WezTerm Solarized Light, results, faint header](0c5a1faa-2026-09-26.png)
 
 ```bash {image}
-![Before: Terminal.app Novel, results, faint header](terminal-novel-light-80x24-results.png)
+![Before: Terminal.app Novel, results, faint header](before-terminal-novel-light-80x24-results.png)
 ```
 
-![Before: Terminal.app Novel, results, faint header](c81a6c0d-2026-09-26.png)
+![Before: Terminal.app Novel, results, faint header](15da5aaa-2026-09-26.png)
+
+## After the header fix
+
+The captain's re-run of the same script after the fix: every case in WezTerm and Terminal.app, across sizes (60, 80, 120 and 200 columns, and a 15-row window), light and dark themes, small and large fonts, 256 and 16 colours, NO_COLOR and a minimal locale. Terminal.app title bars are cropped.
+
+```bash {image}
+![After: WezTerm 16 colours, 80 columns by 24 rows, ranked results](wezterm-16-colour-80x24-results.png)
+```
+
+![After: WezTerm 16 colours, 80 columns by 24 rows, ranked results](45d78e2c-2026-09-26.png)
+
+```bash {image}
+![After: WezTerm 256 colours, 80 columns by 24 rows, ranked results](wezterm-256-colour-80x24-results.png)
+```
+
+![After: WezTerm 256 colours, 80 columns by 24 rows, ranked results](f5a2859b-2026-09-26.png)
+
+```bash {image}
+![After: WezTerm dark, 120 columns by 24 rows, ranked results](wezterm-dark-120x24-results.png)
+```
+
+![After: WezTerm dark, 120 columns by 24 rows, ranked results](f7d63cda-2026-09-26.png)
+
+```bash {image}
+![After: WezTerm dark, 200 columns by 24 rows, ranked results](wezterm-dark-200x24-results.png)
+```
+
+![After: WezTerm dark, 200 columns by 24 rows, ranked results](43d59403-2026-09-26.png)
+
+```bash {image}
+![After: WezTerm dark, 60 columns by 24 rows, meaning mode, cost shown before sending](wezterm-dark-60x24-ask.png)
+```
+
+![After: WezTerm dark, 60 columns by 24 rows, meaning mode, cost shown before sending](92651c81-2026-09-26.png)
+
+```bash {image}
+![After: WezTerm dark, 60 columns by 24 rows, ranked results](wezterm-dark-60x24-results.png)
+```
+
+![After: WezTerm dark, 60 columns by 24 rows, ranked results](3211a72c-2026-09-26.png)
+
+```bash {image}
+![After: WezTerm dark, 80 columns by 15 rows (short window), meaning mode, cost shown before sending](wezterm-dark-80x15-short-ask.png)
+```
+
+![After: WezTerm dark, 80 columns by 15 rows (short window), meaning mode, cost shown before sending](a51eeb20-2026-09-26.png)
+
+```bash {image}
+![After: WezTerm dark, 80 columns by 15 rows (short window), ranked results](wezterm-dark-80x15-short-results.png)
+```
+
+![After: WezTerm dark, 80 columns by 15 rows (short window), ranked results](effdfa27-2026-09-26.png)
+
+```bash {image}
+![After: WezTerm dark, 80 columns by 24 rows, meaning mode, cost shown before sending](wezterm-dark-80x24-ask.png)
+```
+
+![After: WezTerm dark, 80 columns by 24 rows, meaning mode, cost shown before sending](4d47b416-2026-09-26.png)
+
+```bash {image}
+![After: WezTerm dark, 80 columns by 24 rows, fuzzy mode](wezterm-dark-80x24-fuzzy.png)
+```
+
+![After: WezTerm dark, 80 columns by 24 rows, fuzzy mode](f82bfe92-2026-09-26.png)
+
+```bash {image}
+![After: WezTerm dark, 80 columns by 24 rows, no key, meaning mode, cost shown before sending](wezterm-dark-80x24-nokey-ask.png)
+```
+
+![After: WezTerm dark, 80 columns by 24 rows, no key, meaning mode, cost shown before sending](e07bce56-2026-09-26.png)
+
+```bash {image}
+![After: WezTerm dark, 80 columns by 24 rows, ranked results](wezterm-dark-80x24-results.png)
+```
+
+![After: WezTerm dark, 80 columns by 24 rows, ranked results](261bed95-2026-09-26.png)
+
+```bash {image}
+![After: WezTerm dark, 80 columns by 24 rows, search running](wezterm-dark-80x24-running.png)
+```
+
+![After: WezTerm dark, 80 columns by 24 rows, search running](1719e3b9-2026-09-26.png)
+
+```bash {image}
+![After: WezTerm large font, 80 columns by 24 rows, ranked results](wezterm-font-large-80x24-results.png)
+```
+
+![After: WezTerm large font, 80 columns by 24 rows, ranked results](3b409b05-2026-09-26.png)
+
+```bash {image}
+![After: WezTerm small font, 80 columns by 24 rows, ranked results](wezterm-font-small-80x24-results.png)
+```
+
+![After: WezTerm small font, 80 columns by 24 rows, ranked results](ee51b780-2026-09-26.png)
+
+```bash {image}
+![After: WezTerm Builtin Light, 80 columns by 24 rows, meaning mode, cost shown before sending](wezterm-light-80x24-ask.png)
+```
+
+![After: WezTerm Builtin Light, 80 columns by 24 rows, meaning mode, cost shown before sending](4fd026fa-2026-09-26.png)
+
+```bash {image}
+![After: WezTerm Builtin Light, 80 columns by 24 rows, ranked results](wezterm-light-80x24-results.png)
+```
+
+![After: WezTerm Builtin Light, 80 columns by 24 rows, ranked results](86605f81-2026-09-26.png)
+
+```bash {image}
+![After: WezTerm no UTF-8 locale, 80 columns by 24 rows, meaning mode, cost shown before sending](wezterm-minimal-locale-80x24-ask.png)
+```
+
+![After: WezTerm no UTF-8 locale, 80 columns by 24 rows, meaning mode, cost shown before sending](f08c34bf-2026-09-26.png)
+
+```bash {image}
+![After: WezTerm no UTF-8 locale, 80 columns by 24 rows, ranked results](wezterm-minimal-locale-80x24-results.png)
+```
+
+![After: WezTerm no UTF-8 locale, 80 columns by 24 rows, ranked results](e9dca369-2026-09-26.png)
+
+```bash {image}
+![After: WezTerm NO_COLOR, 80 columns by 24 rows, meaning mode, cost shown before sending](wezterm-no-color-80x24-ask.png)
+```
+
+![After: WezTerm NO_COLOR, 80 columns by 24 rows, meaning mode, cost shown before sending](a4dc5755-2026-09-26.png)
+
+```bash {image}
+![After: WezTerm NO_COLOR, 80 columns by 24 rows, ranked results](wezterm-no-color-80x24-results.png)
+```
+
+![After: WezTerm NO_COLOR, 80 columns by 24 rows, ranked results](1f81f227-2026-09-26.png)
+
+```bash {image}
+![After: WezTerm Solarized Light, 80 columns by 24 rows, ranked results](wezterm-solarized-light-80x24-results.png)
+```
+
+![After: WezTerm Solarized Light, 80 columns by 24 rows, ranked results](89566fbf-2026-09-26.png)
+
+```bash {image}
+![After: Terminal.app Basic profile, 120 columns by 24 rows, ranked results](terminal-basic-120x24-results.png)
+```
+
+![After: Terminal.app Basic profile, 120 columns by 24 rows, ranked results](e27747d3-2026-09-26.png)
+
+```bash {image}
+![After: Terminal.app Basic profile, 16 colours, 80 columns by 24 rows, ranked results](terminal-basic-16-colour-80x24-results.png)
+```
+
+![After: Terminal.app Basic profile, 16 colours, 80 columns by 24 rows, ranked results](160cd446-2026-09-26.png)
+
+```bash {image}
+![After: Terminal.app Basic profile, 200 columns by 24 rows, ranked results](terminal-basic-200x24-results.png)
+```
+
+![After: Terminal.app Basic profile, 200 columns by 24 rows, ranked results](20fc08d4-2026-09-26.png)
+
+```bash {image}
+![After: Terminal.app Basic profile, 60 columns by 24 rows, meaning mode, cost shown before sending](terminal-basic-60x24-ask.png)
+```
+
+![After: Terminal.app Basic profile, 60 columns by 24 rows, meaning mode, cost shown before sending](6c6a1acd-2026-09-26.png)
+
+```bash {image}
+![After: Terminal.app Basic profile, 60 columns by 24 rows, ranked results](terminal-basic-60x24-results.png)
+```
+
+![After: Terminal.app Basic profile, 60 columns by 24 rows, ranked results](99842667-2026-09-26.png)
+
+```bash {image}
+![After: Terminal.app Basic profile, 80 columns by 15 rows (short window), meaning mode, cost shown before sending](terminal-basic-80x15-short-ask.png)
+```
+
+![After: Terminal.app Basic profile, 80 columns by 15 rows (short window), meaning mode, cost shown before sending](5f927b53-2026-09-26.png)
+
+```bash {image}
+![After: Terminal.app Basic profile, 80 columns by 15 rows (short window), ranked results](terminal-basic-80x15-short-results.png)
+```
+
+![After: Terminal.app Basic profile, 80 columns by 15 rows (short window), ranked results](682af558-2026-09-26.png)
+
+```bash {image}
+![After: Terminal.app Basic profile, 80 columns by 24 rows, meaning mode, cost shown before sending](terminal-basic-80x24-ask.png)
+```
+
+![After: Terminal.app Basic profile, 80 columns by 24 rows, meaning mode, cost shown before sending](4084910a-2026-09-26.png)
+
+```bash {image}
+![After: Terminal.app Basic profile, 80 columns by 24 rows, fuzzy mode](terminal-basic-80x24-fuzzy.png)
+```
+
+![After: Terminal.app Basic profile, 80 columns by 24 rows, fuzzy mode](4ce0d76d-2026-09-26.png)
+
+```bash {image}
+![After: Terminal.app Basic profile, 80 columns by 24 rows, no key, meaning mode, cost shown before sending](terminal-basic-80x24-nokey-ask.png)
+```
+
+![After: Terminal.app Basic profile, 80 columns by 24 rows, no key, meaning mode, cost shown before sending](ed9d46fb-2026-09-26.png)
+
+```bash {image}
+![After: Terminal.app Basic profile, 80 columns by 24 rows, ranked results](terminal-basic-80x24-results.png)
+```
+
+![After: Terminal.app Basic profile, 80 columns by 24 rows, ranked results](e50b239f-2026-09-26.png)
+
+```bash {image}
+![After: Terminal.app Basic profile, 80 columns by 24 rows, search running](terminal-basic-80x24-running.png)
+```
+
+![After: Terminal.app Basic profile, 80 columns by 24 rows, search running](cca94fcd-2026-09-26.png)
+
+```bash {image}
+![After: Terminal.app no UTF-8 locale, 80 columns by 24 rows, meaning mode, cost shown before sending](terminal-minimal-locale-80x24-ask.png)
+```
+
+![After: Terminal.app no UTF-8 locale, 80 columns by 24 rows, meaning mode, cost shown before sending](60ef5728-2026-09-26.png)
+
+```bash {image}
+![After: Terminal.app no UTF-8 locale, 80 columns by 24 rows, ranked results](terminal-minimal-locale-80x24-results.png)
+```
+
+![After: Terminal.app no UTF-8 locale, 80 columns by 24 rows, ranked results](bdbafa1d-2026-09-26.png)
+
+```bash {image}
+![After: Terminal.app NO_COLOR, 80 columns by 24 rows, ranked results](terminal-no-color-80x24-results.png)
+```
+
+![After: Terminal.app NO_COLOR, 80 columns by 24 rows, ranked results](95321ad8-2026-09-26.png)
+
+```bash {image}
+![After: Terminal.app Novel profile, 80 columns by 24 rows, ranked results](terminal-novel-light-80x24-results.png)
+```
+
+![After: Terminal.app Novel profile, 80 columns by 24 rows, ranked results](2fb0a3a3-2026-09-26.png)
+
+```bash {image}
+![After: Terminal.app Pro profile, 80 columns by 24 rows, meaning mode, cost shown before sending](terminal-pro-dark-80x24-ask.png)
+```
+
+![After: Terminal.app Pro profile, 80 columns by 24 rows, meaning mode, cost shown before sending](09117262-2026-09-26.png)
+
+```bash {image}
+![After: Terminal.app Pro profile, 80 columns by 24 rows, ranked results](terminal-pro-dark-80x24-results.png)
+```
+
+![After: Terminal.app Pro profile, 80 columns by 24 rows, ranked results](bf4ccbec-2026-09-26.png)
