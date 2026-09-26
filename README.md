@@ -171,6 +171,7 @@ Keep the key out of command arguments.
 ## Privacy
 
 Meaning search sends the query and the lines to TypeSafe's HTTPS API.
+With decision-gate's `vercel-ai-gateway` provider selected, they go to Vercel AI Gateway instead; see [Using Jev through Vercel AI Gateway](packages/decision-gate/README.md#using-jev-through-vercel-ai-gateway).
 Before anything is sent, a built-in filter replaces known secret formats in the query and every line.
 The final check runs on the exact request body of every attempt, retries included, and refuses to send one in which a known secret survives.
 The built-in filter recognises known formats only:

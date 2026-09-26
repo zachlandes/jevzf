@@ -188,12 +188,14 @@ test("Ctrl-C, an fzf reload's SIGTERM, SIGHUP and kill -9 mid-request never bloc
   }
 });
 
-test("a rejected key stops the search after the requests already in flight", async (t) => {
-  const f = await fixture(t, 401);
-  const input = Array.from({ length: 2000 }, (_, i) => `commit ${i} fixes a retry bug`).join("\n");
-  const result = await f.run(input, ["retry"]);
-  assert.equal(result.code, 2);
-  assert.equal(result.stdout.length, 0);
-  assert.match(result.stderr, /HTTP 401/);
-  assert.ok(f.requests.length <= 8, `sent ${f.requests.length} of 125 batches`);
-});
+for (const status of [401, 402, 403]) {
+  test(`a rejected key or account (HTTP ${status}) stops the search after the requests already in flight`, async (t) => {
+    const f = await fixture(t, status);
+    const input = Array.from({ length: 2000 }, (_, i) => `commit ${i} fixes a retry bug`).join("\n");
+    const result = await f.run(input, ["retry"]);
+    assert.equal(result.code, 2);
+    assert.equal(result.stdout.length, 0);
+    assert.match(result.stderr, new RegExp(`HTTP ${status}`));
+    assert.ok(f.requests.length <= 8, `sent ${f.requests.length} of 125 batches`);
+  });
+}
