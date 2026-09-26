@@ -1,6 +1,6 @@
 # jevzf
 
-Jev-powered search for fzf.
+A meaning mode for fzf.
 Unofficial; not affiliated with TypeSafe.
 
 Pipe anything into `jevzf` and it opens stock fzf with a third mode beside fuzzy and exact: meaning.
