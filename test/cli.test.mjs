@@ -373,6 +373,7 @@ test("ten generated keys of every known format, in each provider's real shape, a
   const digits = from("0123456789");
   const upperDigits = from(upper + "0123456789");
   const hex = from("0123456789abcdef");
+  const base64 = from(upper + upper.toLowerCase() + "0123456789+/");
   // Prefixes are split so the fake credentials never appear whole in the source
   const formats = [
     ["[api key]", () => "s" + "k-proj-" + b64url(156)],
@@ -397,7 +398,13 @@ test("ten generated keys of every known format, in each provider's real shape, a
     ["[aws key]", () => "AS" + "IA" + upperDigits(16)],
     ["[google key]", () => "AI" + "za" + b64url(35)],
     ["[token]", () => "ey" + "J" + b64url(33) + "." + b64url(60) + "." + b64url(43)],
-    ["[email]", () => alnum(8).toLowerCase() + "@" + digits(3) + ".com"]
+    ["[email]", () => alnum(8).toLowerCase() + "@" + digits(3) + ".com"],
+    ["[github token]", () => "gh" + "u_" + alnum(36)],
+    ["[github token]", () => "gh" + "r_" + alnum(76)],
+    ["Bearer [token]", () => "Bearer " + b64url(40)],
+    ["Authorization: [redacted]", () => "Authorization: Basic " + base64(30) + "=="],
+    ["https://[redacted]@example.com/path", () => "https://" + alnum(6).toLowerCase() + ":" + alnum(20) + "@example.com/path"],
+    ["postgres://[redacted]@db:5432/app", () => "postgres://app:" + alnum(24) + "@db:5432/app"]
   ];
   const cases = formats.flatMap(([replacement, make]) => Array.from({ length: 10 }, () => [make(), replacement]));
   assert.ok(cases.some(([key]) => key.startsWith("s" + "k-proj-") && /-.*-/.test(key.slice(8))));
@@ -427,7 +434,6 @@ test("code lines keep everything but a secret's value", async (t) => {
     "const secretName = process.env.SECRET_NAME;",
     'logger.info("token refreshed", { userId });',
     "password_reset_url: /account/reset",
-    'sortKey: "createdAt",',
     "const tokenCount = tokens.length;",
     "- name: Rotate API key",
     "if (password.length < 12) return false;",
@@ -436,7 +442,14 @@ test("code lines keep everything but a secret's value", async (t) => {
     'return jwt.encode(payload, key, algorithm="HS256")',
     "password_hash = bcrypt.hash(password, rounds)",
     "for key, value in settings.items():",
-    "  - key: ENVIRONMENT"
+    "  - key: ENVIRONMENT",
+    "password = get_password()",
+    "const token = await fetchToken(user)",
+    "token = getToken();",
+    "api_key = os.environ['API_KEY']",
+    "if (token === expectedToken) {",
+    "const tokenCount = 5",
+    "monkey=banana tokens=5 keyboard=qwerty"
   ];
   const secret = [
     ['const password = "hunter2secret";', 'const password = "[redacted]";'],
@@ -451,12 +464,20 @@ test("code lines keep everything but a secret's value", async (t) => {
     ['if (password !== "x") {', 'if (password !== "[redacted]") {'],
     ['password != "x"', 'password != "[redacted]"'],
     ["password = `hunter2 secret` + suffix", "password = `[redacted]` + suffix"],
-    ["DB_PASSWORD=abc;def'ghi", "DB_PASSWORD=[redacted];def'ghi"],
+    ["DB_PASSWORD=abc;def'ghi", "DB_PASSWORD=[redacted]'ghi"],
     ["password=[bracketed]secret", "password=[redacted]"],
     ['password="unterminated secret', 'password="[redacted]"'],
     ['"password": "ab\\"cdsecret"', '"password": "[redacted]"'],
     ["{ key: 'settings', label: t('nav.settings') }", "{ key: '[redacted]', label: t('nav.settings') }"],
-    ["password = get_password()", "password = [redacted])"],
+    ['sortKey: "createdAt",', 'sortKey: "[redacted]",'],
+    ["{password=abc123}", "{password=[redacted]}"],
+    ["--token=abc123 --verbose", "--token=[redacted] --verbose"],
+    ["SECRET_KEY_BASE=3f4a9c1e8b7d6a5f4e3d2c1b0a9f8e7d", "SECRET_KEY_BASE=[redacted]"],
+    ["DB_PASSWORD_PROD=hunter2hunter2", "DB_PASSWORD_PROD=[redacted]"],
+    ["API_KEY_V2=abcd1234efgh", "API_KEY_V2=[redacted]"],
+    ["GITHUB_TOKEN_READONLY=abc123def456", "GITHUB_TOKEN_READONLY=[redacted]"],
+    ['password_confirmation: "hunter2"', 'password_confirmation: "[redacted]"'],
+    ['const apiKey = "xyz";', 'const apiKey = "[redacted]";'],
     ["export OPENAI_API_KEY=" + "s" + "k-proj-" + "a1B2-c3D4_e5F6-g7H8i9J0", "export OPENAI_API_KEY=[redacted]"]
   ];
   assert.ok(unchanged.length + secret.length >= 30);

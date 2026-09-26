@@ -136,7 +136,10 @@ The built-in filter recognises known formats only:
 - Prefixed API keys: OpenAI and Anthropic `sk-proj-`, `sk-svcacct-`, `sk-admin-`, `sk-None-` and `sk-ant-`, and any other `sk-` key of 20 or more characters with a capital letter and a digit, Stripe `sk_live_`/`sk_test_`, GitHub `ghp_`/`gho_`/`ghs_`/`ghu_`/`ghr_`/`github_pat_`, GitLab `glpat-`, npm `npm_`, Slack `xoxb-`/`xoxp-`/`xoxa-` and similar, AWS `AKIA`/`ASIA`, Google `AIza`
 - `Bearer` tokens and `Authorization` header values
 - Credentials in URLs and email addresses
-- The value in pairs whose key names a password, passwd, pwd, secret, token, api key, access key, private key, client secret or key: a quoted literal after `=`, `==`, `===`, `!=`, `!==`, `:=`, `:` or `=>`; a bare value up to whitespace, `;`, `,` or `)` after an `=` form; and after `:` or `=>`, a bare value only when it is 12 or more characters with a digit, so type annotations such as `token: string` pass
+- The value in pairs whose key contains password, passwd, pwd, secret, token, apikey or key as a whole segment (split by `_`, `-` or a case change, so `SECRET_KEY_BASE`, `apiKey` and `password_confirmation` count and `tokens` or `monkey` do not):
+  - Config form, `KEY=value` with no spaces around `=` (dotenv, shell, INI, `--token=...`): the whole value, up to whitespace, the end of the line, or a closing quote, bracket or brace
+  - Code form, `key = value` with spaces, a comparison (`==`, `===`, `!=`, `!==`), `:=` or `=>`: only a quoted string literal, so names, calls and `await` expressions pass
+  - After `:`: a quoted string literal, or a bare value of 12 or more characters with a digit, so type annotations such as `token: string` pass
 
 A secret in no known format that is not on your never-send list is sent as written; add such values to the list, and choose input deliberately.
 Output contains the original local lines, not redacted replacements.
