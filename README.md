@@ -156,7 +156,14 @@ The file belongs to [decision-gate](packages/decision-gate/README.md), so every 
 For one-off runs and CI, `DECISION_GATE_PER_RUN_USD`, `DECISION_GATE_PER_DAY_USD`, `DECISION_GATE_RPM` and `DECISION_GATE_TPS` override the file, and `DECISION_GATE_CONFIG` points at another file.
 Relative paths in the file resolve beside it, and `~/` works.
 
-The key comes from `TYPESAFE_API_KEY` first, then `key_file`, which must be mode 600; no other location is read.
+To give jevzf a key of its own, so its spend is ledgered and capped apart from other tools' key, name it in `~/.config/jevzf/config.json` (or `$XDG_CONFIG_HOME/jevzf/config.json`, or the file `JEVZF_CONFIG` names):
+
+```json
+{ "key_file": "~/.config/jevzf/key" }
+```
+
+That file holds only `key_file`; every other setting stays in decision-gate's config.
+The key comes from jevzf's `key_file` first, so a `TYPESAFE_API_KEY` exported for other tools is never spent by jevzf, then `TYPESAFE_API_KEY`, then decision-gate's `key_file`; key files must be mode 600, and no other location is read.
 Keep the key out of command arguments.
 
 ## Privacy
