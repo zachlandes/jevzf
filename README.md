@@ -41,7 +41,7 @@ A meaning search on input that is still arriving runs on the complete lines so f
 It talks to fzf over a Unix socket in that private directory, never a TCP port.
 Without a key it still opens, and meaning mode says `Meaning search needs a TypeSafe key · export TYPESAFE_API_KEY` and sends nothing.
 Your `FZF_DEFAULT_OPTS` still apply, and its header takes your terminal's own text colour unless your fzf options set one.
-fzf is found through `JEVZF_FZF` or `PATH`; a launcher with a minimal `PATH` should call jevzf by its full path.
+fzf is found on `PATH`, so a launcher with a minimal `PATH` has to put fzf on it.
 
 ## The filter
 

@@ -176,7 +176,7 @@ async function main() {
         ...UTF8, TERM: "xterm-256color", COLORTERM: "truecolor", FZF_DEFAULT_OPTS: "", NO_COLOR: null,
         HOME: home, XDG_CONFIG_HOME: home, XDG_STATE_HOME: home, XDG_CACHE_HOME: home, TMPDIR: dir,
         TYPESAFE_API_KEY: spec.key === false ? null : "stand-in-no-real-key", JEVZF_JEV_ENDPOINT: endpoint,
-        PATH: process.env.PATH, JEVZF_FZF: process.env.JEVZF_FZF ?? null,
+        PATH: process.env.PATH,
         ...spec.env
       };
       const lines = Object.entries(env).map(([name, value]) => value === null ? `unset ${name}` : `export ${name}='${String(value).replaceAll("'", "'\\''")}'`);

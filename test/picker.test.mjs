@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { PINNED_MODEL } from "../lib/meaning/jev.mjs";
 import { openJev, searchByMeaning } from "../lib/core.mjs";
 import { act, EXACT_SHELL, exactTerms, fitWidth, glyphs, header, summary } from "../lib/picker/view.mjs";
-import { handleKey, headerInfo, saveState, loadState, inputFile, endFile, QUEUED_SHELL } from "../lib/picker/keys.mjs";
+import { handleKey, headerInfo, saveState, loadState, inputFile, endFile, pushFile, resultsFile, QUEUED_SHELL } from "../lib/picker/keys.mjs";
 import { findFzf, fzfEnv } from "../lib/picker/run.mjs";
 
 const cli = fileURLToPath(new URL("../bin/jevzf.mjs", import.meta.url));
@@ -71,7 +71,7 @@ function keyFixture(t, env = {}) {
   writeFileSync(endFile(dir), "");
   saveState(dir, { mode: "fuzzy", phase: "ask", words: "", gen: 0, summary: null, progress: null, options: { floor: 0.58, closest: 3, noCache: false, read0: false } });
   const base = { ...utf8, FZF_COLUMNS: "100", XDG_CONFIG_HOME: home, XDG_STATE_HOME: home, XDG_CACHE_HOME: home, ...env };
-  return { dir, key: (name, query = "") => handleKey(dir, name, { ...base, FZF_QUERY: query }) };
+  return { dir, key: (name, query = "", extra = {}) => handleKey(dir, name, { ...base, FZF_QUERY: query, ...extra }) };
 }
 
 test("mode keys keep the typed words, and meaning shows every line with search off", async (t) => {
@@ -98,7 +98,9 @@ test("enter queues one meaning search behind an emptied list, and results give t
   const queued = spawnSync("sh", ["-c", QUEUED_SHELL], { env: { JEVZF_PICKER_DIR: f.dir }, encoding: "utf8" });
   assert.match(queued.stdout, new RegExp(`^reload\\(.*child\\.mjs' search ${state.gen}\\)$`));
   assert.equal(spawnSync("sh", ["-c", QUEUED_SHELL], { env: { JEVZF_PICKER_DIR: f.dir }, encoding: "utf8" }).stdout, "");
-  assert.equal(await f.key("enter", "narrowing"), "accept");
+  // A second press before the first match arrives keeps the search, and once one has, enter picks
+  assert.equal(await f.key("enter", "", { FZF_MATCH_COUNT: "0" }), "ignore");
+  assert.equal(await f.key("enter", "narrowing", { FZF_MATCH_COUNT: "1" }), "accept");
   const back = await f.key("fuzzy", "narrowing");
   assert.match(back, /reload\([^)]+ list\)\+change-query\(why uploads fail\)/);
 });
@@ -129,19 +131,18 @@ test("the picker refuses fzf older than 0.66 or missing, naming the fix", (t) =>
   const fake = path.join(dir, "fzf");
   writeFileSync(fake, "#!/bin/sh\necho '0.65.2 (fake)'\n");
   chmodSync(fake, 0o755);
-  assert.throws(() => findFzf({ JEVZF_FZF: fake }), /needs fzf 0\.66 or newer, found 0\.65\.2; install it with brew install fzf/);
-  assert.throws(() => findFzf({ JEVZF_FZF: path.join(dir, "missing") }), /none was found/);
+  assert.throws(() => findFzf({ PATH: dir }), /needs fzf 0\.66 or newer, found 0\.65\.2; install it with brew install fzf/);
+  assert.throws(() => findFzf({ PATH: path.join(dir, "missing") }), /none was found/);
   writeFileSync(fake, "#!/bin/sh\necho '0.66.0 (fake)'\n");
-  assert.equal(findFzf({ JEVZF_FZF: fake }), fake);
-  const cliRun = spawnSync(process.execPath, [cli], { input: "a\n", env: { PATH: process.env.PATH, JEVZF_FZF: path.join(dir, "missing") }, encoding: "utf8" });
+  assert.doesNotThrow(() => findFzf({ PATH: dir }));
+  const cliRun = spawnSync(process.execPath, [cli], { input: "a\n", env: { PATH: path.join(dir, "missing") }, encoding: "utf8" });
   assert.equal(cliRun.status, 2);
   assert.match(cliRun.stderr, /use the filter: cmd \| jevzf QUERY/);
 });
 
-// Real fzf in a PTY: JEVZF_FZF when set (CI points it at each supported release), else PATH
-const fzfPath = process.env.JEVZF_FZF || "fzf";
+// Real fzf in a PTY, found on PATH; put a release's directory first on PATH to test that release
 let usableFzf = spawnSync("python3", ["--version"]).status === 0;
-try { findFzf({ ...process.env, JEVZF_FZF: fzfPath }); } catch { usableFzf = false; }
+try { findFzf(process.env); } catch { usableFzf = false; }
 
 async function standIn(t, { hold = false } = {}) {
   const requests = [];
@@ -177,7 +178,7 @@ function picker(t, { steps, env = {}, input, args = [], home }) {
     const child = spawn("python3", [driver], {
       env: {
         PATH: process.env.PATH, HOME: home, XDG_CONFIG_HOME: home, XDG_STATE_HOME: home, XDG_CACHE_HOME: home, TERM: "xterm-256color", LANG: "en_US.UTF-8",
-        JEVZF_FZF: fzfPath, FZF_DEFAULT_OPTS: "", STEPS: JSON.stringify(steps), GATE_DIR: dir,
+        FZF_DEFAULT_OPTS: "", STEPS: JSON.stringify(steps), GATE_DIR: dir,
         COMMAND: `${source} ${[process.execPath, cli, ...args].map((part) => `'${part}'`).join(" ")} > '${result}'`,
         ...env
       }
@@ -290,9 +291,32 @@ test("input that passes 10 MiB after enter ends the search with a failure, not a
   const worker = spawn(process.execPath, [fileURLToPath(new URL("../lib/picker/child.mjs", import.meta.url)), "work", String(loadState(f.dir).gen)], { env: { ...utf8, PATH: process.env.PATH, XDG_CONFIG_HOME: home, XDG_STATE_HOME: home, XDG_CACHE_HOME: home, TYPESAFE_API_KEY: "fixture-only", JEVZF_PICKER_DIR: f.dir }, stdio: ["pipe", "ignore", "ignore"] });
   const code = await new Promise((resolve) => worker.on("close", resolve));
   assert.equal(code, 0);
+  assert.match(await f.key("pushed"), /Meaning search failed: input exceeds 10 MiB; narrow the input first/);
   const state = loadState(f.dir);
   assert.equal(state.phase, "results");
   assert.equal(state.summary, "Meaning search failed: input exceeds 10 MiB; narrow the input first");
+});
+
+test("a search's pushes apply only while it is current, and its outcome reloads the ranked list", async (t) => {
+  const f = keyFixture(t, { TYPESAFE_API_KEY: "fixture-only" });
+  await f.key("meaning");
+  await f.key("enter", "why uploads fail");
+  const { gen } = loadState(f.dir);
+  writeFileSync(pushFile(f.dir, gen), JSON.stringify({ progress: { judged: 1, total: 2, spend: 0 } }));
+  assert.match(await f.key("pushed"), /^change-header\([\s\S]*1 of 2 lines/);
+  assert.equal(await f.key("pushed"), "ignore");
+  writeFileSync(resultsFile(f.dir, gen), "retry failed uploads\n");
+  writeFileSync(pushFile(f.dir, gen), JSON.stringify({ phase: "results", summary: "done", progress: null }));
+  assert.equal(await f.key("pushed"), `reload(cat '${resultsFile(f.dir, gen)}')`);
+  assert.match(spawnSync("sh", ["-c", QUEUED_SHELL], { env: { JEVZF_PICKER_DIR: f.dir }, encoding: "utf8" }).stdout, /^change-header\([\s\S]*done/);
+  // A key that lands before fzf applies a superseded search's push leaves that push unapplied
+  await f.key("meaning");
+  await f.key("enter", "why uploads fail");
+  const next = loadState(f.dir).gen;
+  writeFileSync(pushFile(f.dir, next), JSON.stringify({ progress: { judged: 1, total: 2, spend: 0 } }));
+  await f.key("fuzzy");
+  assert.equal(await f.key("pushed"), "ignore");
+  assert.deepEqual([loadState(f.dir).mode, loadState(f.dir).phase, loadState(f.dir).progress], ["fuzzy", "ask", null]);
 });
 
 test("picker: --read0 keeps multiline records whole through a meaning search", { skip: !usableFzf }, async (t) => {
