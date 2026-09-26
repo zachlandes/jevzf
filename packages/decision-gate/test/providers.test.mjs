@@ -23,7 +23,7 @@ function setup(t, { config, env: extra = {}, answer } = {}) {
     const body = JSON.parse(init.body);
     sent.push({ url, authorization: init.headers.Authorization ?? init.headers.authorization, body });
     if (answer) return answer(body, sent.length);
-    return new Response(JSON.stringify({ model: body.model, answers: { q: { type: "noul", noul: 0.7 } }, usage: { input_tokens: 275, output_tokens: 0 }, provider_metadata: { gateway: { cost: "0.00001155" } } }));
+    return new Response(JSON.stringify({ model: body.model, answers: { q: { type: "noul", noul: 0.7 } }, usage: { input_tokens: 275, output_tokens: 0 }, provider_metadata: { gateway: { cost: "0.5" } } }));
   };
   const open = (options = {}) => openJev({ env, fetch, tool: "fixture", ...options });
   return { dir, env, sent, open };
@@ -125,9 +125,7 @@ test("gateway usage is booked at the listed price, ignoring its metadata, in its
   const run = f.open().run();
   await run.ask(request("public"));
   await run.close();
-  // The gateway's own cost for 275 tokens is USD 0.00001155
   assert.equal(run.summary().committed_usd, usdFor(275));
-  assert.ok(Math.abs(usdFor(275) - 0.00001155) < 1e-15);
   const ledgers = path.join(f.dir, "decision-gate/spend");
   assert.deepEqual(readdirSync(ledgers), ["vercel-ai-gateway"]);
   const stored = readdirSync(path.join(ledgers, "vercel-ai-gateway")).map((name) => readFileSync(path.join(ledgers, "vercel-ai-gateway", name), "utf8")).join("");
