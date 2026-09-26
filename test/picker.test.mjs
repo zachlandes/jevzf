@@ -8,8 +8,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { PINNED_MODEL } from "../lib/meaning/jev.mjs";
-import { act, exactTerms, fitWidth, glyphs, header, summary } from "../lib/picker/view.mjs";
-import { handleKey, saveState, loadState, inputFile, QUEUED_SHELL } from "../lib/picker/keys.mjs";
+import { openJev, searchByMeaning } from "../lib/core.mjs";
+import { act, EXACT_SHELL, exactTerms, fitWidth, glyphs, header, summary } from "../lib/picker/view.mjs";
+import { handleKey, headerInfo, saveState, loadState, inputFile, QUEUED_SHELL } from "../lib/picker/keys.mjs";
 import { findFzf, fzfEnv } from "../lib/picker/run.mjs";
 
 const cli = fileURLToPath(new URL("../bin/jevzf.mjs", import.meta.url));
@@ -56,7 +57,7 @@ test("fzf actions choose a bracket their argument lacks, and exact mode quotes p
   assert.equal(act("change-query", "a (b)"), "change-query[a (b)]");
   assert.equal(act("change-prompt", "x\ny"), "change-prompt(x y)");
   assert.equal(exactTerms("retry  'done ^start !not | or"), "'retry 'done ^start !not | 'or");
-  const shell = spawnSync("sh", ["-c", "printf '%s' \"$FZF_QUERY\" | awk '{ out = \"\"; for (i = 1; i <= NF; i++) { w = $i; if (w != \"|\" && w !~ /^[\\047^!]/) w = \"\\047\" w; out = out (i > 1 ? \" \" : \"\") w } printf \"%s\", out }'"], { env: { FZF_QUERY: "retry  'done ^start !not | or" }, encoding: "utf8" });
+  const shell = spawnSync("sh", ["-c", EXACT_SHELL], { env: { FZF_QUERY: "retry  'done ^start !not | or" }, encoding: "utf8" });
   assert.equal(shell.stdout, exactTerms("retry  'done ^start !not | or"));
 });
 
@@ -158,17 +159,20 @@ async function standIn(t, { hold = false } = {}) {
   return { requests, endpoint: `http://127.0.0.1:${server.address().port}/v1/systemone` };
 }
 
-function picker(t, { steps, env = {}, input, args = [], home }) {
+function picker(t, { steps, env = {}, input, args = [], home, slow = false }) {
   const dir = scratch(t);
   home ??= dir;
   writeFileSync(path.join(dir, "input"), input);
   const result = path.join(dir, "result");
+  const file = `'${path.join(dir, "input")}'`;
+  // A slow producer sends its first line, then the rest in parts once the test has switched modes
+  const source = slow ? `(sed -n 1p ${file}; sleep 2; sed -n 2,11p ${file}; sleep 0.3; sed -n 12,21p ${file}; sleep 0.3; sed -n '22,$p' ${file}) |` : "";
   return new Promise((resolve) => {
     const child = spawn("python3", [driver], {
       env: {
         PATH: process.env.PATH, HOME: home, XDG_CONFIG_HOME: home, XDG_STATE_HOME: home, XDG_CACHE_HOME: home, TERM: "xterm-256color", LANG: "en_US.UTF-8",
         JEVZF_FZF: fzfPath, FZF_DEFAULT_OPTS: "", STEPS: JSON.stringify(steps),
-        COMMAND: `${[process.execPath, cli, ...args].map((part) => `'${part}'`).join(" ")} < '${path.join(dir, "input")}' > '${result}'`,
+        COMMAND: `${source} ${[process.execPath, cli, ...args].map((part) => `'${part}'`).join(" ")} ${slow ? "" : `< ${file}`} > '${result}'`,
         ...env
       }
     });
@@ -179,6 +183,20 @@ function picker(t, { steps, env = {}, input, args = [], home }) {
 }
 
 const ENTER = "\r", ESC = "\x1b";
+
+test("under --no-cache the meaning header prices lines an earlier search cached", async (t) => {
+  const s = await standIn(t);
+  const f = keyFixture(t, { TYPESAFE_API_KEY: "fixture-only", JEVZF_JEV_ENDPOINT: s.endpoint });
+  const env = { ...utf8, XDG_CONFIG_HOME: path.join(f.dir, "home"), XDG_STATE_HOME: path.join(f.dir, "home"), XDG_CACHE_HOME: path.join(f.dir, "home"), TYPESAFE_API_KEY: "fixture-only", JEVZF_JEV_ENDPOINT: s.endpoint };
+  await searchByMeaning({ jev: openJev({ env }), query: "why uploads fail", items: ["retry failed uploads", "bump deps"] });
+  const state = { ...loadState(f.dir), mode: "meaning" };
+  const cached = await headerInfo(f.dir, state, env, "why uploads fail");
+  assert.equal(cached.estimate.cachedLines, 2);
+  assert.equal(cached.estimate.estimatedUsd, 0);
+  const fresh = await headerInfo(f.dir, { ...state, options: { ...state.options, noCache: true } }, env, "why uploads fail");
+  assert.equal(fresh.estimate.cachedLines, 0);
+  assert.ok(fresh.estimate.estimatedUsd > 0);
+});
 
 test("picker: fuzzy picks like fzf, and meaning search ranks the piped lines", { skip: !usableFzf }, async (t) => {
   const s = await standIn(t);
@@ -224,6 +242,15 @@ test("picker: leaving meaning mode mid-search stops it and closes its spend hold
   assert.equal(last?.closed, true);
   assert.equal(last.hold, last.usd);
   assert.ok(last.usd < 0.02);
+});
+
+test("picker: meaning search sees input that arrived after leaving fuzzy mode", { skip: !usableFzf }, async (t) => {
+  const s = await standIn(t);
+  const env = { TYPESAFE_API_KEY: "fixture-only", JEVZF_JEV_ENDPOINT: s.endpoint };
+  const rest = Array.from({ length: 40 }, (_, i) => `line ${i}\n`).join("");
+  const result = await picker(t, { input: `bump deps\n${rest}retry failed uploads\n`, slow: true, env, steps: [["wait", "fuzzy>"], ["send", `${ESC}m`], ["wait", "Type what you mean"], ["sleep", "4"], ["send", `why${ENTER}`], ["wait", "found in 42 lines"], ["send", ENTER]] });
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(result.output, "retry failed uploads\n");
 });
 
 test("picker: --read0 keeps multiline records whole through a meaning search", { skip: !usableFzf }, async (t) => {
