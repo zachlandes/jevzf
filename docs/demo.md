@@ -27,7 +27,7 @@ jevzf: meaning search needs a TypeSafe API key; nothing was sent.
 The same input with `--estimate` needs no key, sends nothing and exits 0:
 
 ```text
-2 lines · about USD 0.000018 · never more than USD 0.02 per search · USD 0.20 per day · 0 lines changed by the never-send check
+2 lines · 0 cached · about USD 0.000018 · never more than USD 0.02 per search · USD 0.20 per day · 0 lines changed by the never-send check
 ```
 
 ## Offline behavior and stock fzf
