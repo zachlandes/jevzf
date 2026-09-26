@@ -46,7 +46,10 @@ test("glyphs fall back to ASCII without a UTF-8 locale, and NO_COLOR marks the m
   assert.ok(!plain.includes("\x1b"));
   assert.ok(header({ state: { mode: "exact", phase: "ask" }, env: {} }).includes("\x1b[1;7m exact \x1b[0m"));
   const text = summary({ matches: [1, 2], lines: 1204, stopped: true, unjudged: 20, failed: 0, fallback: false, seconds: 1.94, spend: 0.0118, cached: false }, "retry", glyphs({}));
-  assert.equal(text, "\"retry\": 2 found in 1,204 lines | stopped at the spend ceiling; 20 lines unjudged | 1.9 s | USD 0.0118");
+  assert.equal(text, "\"retry\": 2 found in 1,204 lines | stopped at the spend ceiling; 20 lines unjudged\t1.9 s | USD 0.0118");
+  const results = (columns) => header({ state: { mode: "meaning", phase: "results" }, env: { ...utf8, FZF_COLUMNS: String(columns) }, info: { summary: "“retry logic”: 3 found in 20 lines\t0.6 s · USD 0.000252" } }).split("\n");
+  assert.equal(results(120)[1], "“retry logic”: 3 found in 20 lines · 0.6 s · USD 0.000252");
+  assert.deepEqual(results(50).slice(1, 3), ["“retry logic”: 3 found in 20 lines", "0.6 s · USD 0.000252"]);
 });
 
 test("fzf actions choose a bracket their argument lacks, and exact mode quotes plain words", () => {
