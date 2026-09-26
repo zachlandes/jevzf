@@ -6,12 +6,12 @@
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, request } from "node:http";
-import { crc32, deflateSync, inflateSync } from "node:zlib";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { childCommand } from "../lib/picker/keys.mjs";
 import { findFzf } from "../lib/picker/run.mjs";
+import { blank, recompress } from "./png.mjs";
 
 const REPO = fileURLToPath(new URL("..", import.meta.url));
 const CLI = path.join(REPO, "bin", "jevzf.mjs");
@@ -112,45 +112,6 @@ export function windowOf(pids) {
   return found || null;
 }
 
-// A capture of the wrong or an undrawn window decodes to one repeated byte; a real terminal
-// screenshot holds all 256
-export function blank(file) {
-  const png = readFileSync(file);
-  const parts = [];
-  for (let at = 8; at < png.length;) {
-    const size = png.readUInt32BE(at);
-    if (png.toString("ascii", at + 4, at + 8) === "IDAT") parts.push(png.subarray(at + 8, at + 8 + size));
-    at += 12 + size;
-  }
-  return new Set(inflateSync(Buffer.concat(parts))).size < 16;
-}
-
-// screencapture writes fast, loose compression; the same scanlines at zlib level 9 are about a
-// fifth smaller with identical pixels, which matters for evidence committed to the repo
-function recompress(file) {
-  const png = readFileSync(file);
-  const chunks = [], idat = [];
-  for (let at = 8; at < png.length;) {
-    const size = png.readUInt32BE(at), type = png.toString("ascii", at + 4, at + 8), data = png.subarray(at + 8, at + 8 + size);
-    if (type !== "IDAT") chunks.push([type, data]);
-    else { if (!idat.length) chunks.push(["IDAT", null]); idat.push(data); }
-    at += 12 + size;
-  }
-  const packed = deflateSync(inflateSync(Buffer.concat(idat)), { level: 9 });
-  const out = [png.subarray(0, 8)];
-  for (const [type, original] of chunks) {
-    const data = original ?? packed;
-    const head = Buffer.alloc(8);
-    head.writeUInt32BE(data.length);
-    head.write(type, 4, "ascii");
-    const crc = Buffer.alloc(4);
-    crc.writeUInt32BE(crc32(Buffer.concat([head.subarray(4), data])));
-    out.push(head, data, crc);
-  }
-  const result = Buffer.concat(out);
-  if (result.length < png.length) writeFileSync(file, result);
-}
-
 const post = (sock, body) => new Promise((resolve) => {
   const req = request({ socketPath: sock, method: "POST", path: "/", timeout: 3000 }, (res) => { res.resume(); res.on("end", resolve); });
   req.on("error", resolve);
@@ -181,7 +142,10 @@ async function main() {
   const unknown = only && [...only].filter((name) => !labels.includes(name));
   if (unknown?.length || only?.size === 0) throw new Error(`--only takes case names separated by commas: ${labels.join(", ")}`);
   // Inside the repo's gitignored .tmp, where agents can read the shots; ~/Desktop is closed to them
-  const out = args.find((arg) => !arg.startsWith("--")) ?? path.join(REPO, ".tmp", "legibility", stamp);
+  const given = args.find((arg) => !arg.startsWith("--"));
+  // A copy without .git is an export that its command deletes afterwards, so shots must go elsewhere
+  if (!given && !existsSync(path.join(REPO, ".git"))) throw new Error("this copy is not a git checkout; pass an output folder outside it, such as the worktree's .tmp/legibility/rerun");
+  const out = path.resolve(given ?? path.join(REPO, ".tmp", "legibility", stamp));
   mkdirSync(out, { recursive: true });
   // Short paths, since the picker's socket path must stay under macOS's 104-byte limit
   const work = mkdtempSync("/tmp/jzshots.");
