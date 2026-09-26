@@ -1,7 +1,7 @@
 import path from "node:path";
 import { amount, loadConfig, keySource } from "./config.mjs";
 import { createSpendBudget } from "./budget.mjs";
-import { answerCache } from "./cache.mjs";
+import { TTL, answerCache } from "./cache.mjs";
 import { ConfigError, RedactionError, ServiceError, SpendCapError, StateError } from "./errors.mjs";
 import { createLedger } from "./ledger.mjs";
 import { createLimiter } from "./limits.mjs";
@@ -48,8 +48,12 @@ export function openJev(options = {}) {
     remaining: () => credentials().ledger.remaining(),
     // Answers are filed per provider, model, endpoint and never-send list as well as the caller's
     // scope, so a change to any of them starts a fresh file instead of reusing stale answers
-    cache({ scope, enabled = true, notice: warn = notice } = {}) {
+    // A floating model can change behind its id, so its answers expire within a day; a caller's
+    // ttlMs can only shorten the provider's limit
+    cache({ scope, enabled = true, notice: warn = notice, ttlMs } = {}) {
+      const limit = provider.pinned ? TTL : 86400000;
       return answerCache({
+        ttl: ttlMs === undefined ? limit : Math.min(amount(ttlMs, "cache ttlMs", { positive: true }), limit),
         stateDir: config.stateDir,
         cacheDir: config.cacheDir,
         scope: { provider: provider.name, model: provider.model, endpoint, neverSend: redactor.fingerprint, caller: scope ?? null },

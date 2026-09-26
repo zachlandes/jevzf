@@ -31,27 +31,25 @@ try {
 
 > **Experimental and unpinned.**
 > The `vercel-ai-gateway` provider sends requests through Vercel AI Gateway instead of to TypeSafe directly.
-> The gateway serves Jev only under the floating id `typesafe-ai/jev`, so the Jev version that answers can change without notice, and thresholds tuned on `jev-1.13.0` may not hold.
+> It sends the floating model id `typesafe-ai/jev`, not `jev-1.13.0`, so the Jev version that answers can change without notice, and thresholds tuned on `jev-1.13.0` may not hold.
 > `jev.config.pinned` is `false` for it.
 
 Choose it by name, with `"provider": "vercel-ai-gateway"` in the config or `DECISION_GATE_PROVIDER=vercel-ai-gateway`, and export `AI_GATEWAY_API_KEY`.
 The gate never picks a provider from whichever key variable happens to be set, since other tools export those keys for their own use.
-The key is sent as a Bearer token only to `https://ai-gateway.vercel.sh/typesafe/v1/systemone`, the gateway's TypeSafe-compatible endpoint, so requests and answers keep TypeSafe's shapes and callers change nothing else.
+The key is sent as a Bearer token only to `https://ai-gateway.vercel.sh/typesafe/v1/systemone`, with TypeSafe's request and answer shapes, so callers change nothing else.
 A key belongs to one provider, so the gateway is never sent `TYPESAFE_API_KEY`, the top-level `key_file` or a caller's TypeSafe key; without a gateway key it refuses to send and names where one goes.
 
-It costs the same as TypeSafe directly: USD 0.042 per million input tokens, output free, because the gateway charges the provider's list price with no markup (Vercel's model catalog, checked 2026-09-26).
-Spend is booked from the answer's reported input tokens at that price, in the gateway's own ledger with its own daily ceiling per key.
-The gateway also needs Vercel credits; without them every request fails with a `ServiceError` whose `status` is `402`.
+Spend is booked from the answer's reported input tokens at USD 0.042 per million input tokens, output free, in the gateway's own ledger with its own daily ceiling per key.
+A `402` from the gateway fails the request with a `ServiceError` whose `status` is `402`.
 
-Routing through the gateway adds Vercel to the data path, and, as of 2026-09-26, DigitalOcean too: it is the only endpoint the gateway lists as serving Jev, and it does not offer zero data retention.
+Requests pass through Vercel, which adds it as a party on the data path.
 
 The gateway gets its own rate window, `429` pause and in-flight requests, separate from a TypeSafe account's.
-Vercel publishes no rate limits for it, so the defaults are conservative guesses, not measurements: 60 requests a minute and 2 in flight.
+Its defaults are conservative guesses, not measurements: 60 requests a minute and 2 in flight.
 Each ask is retried once, not twice, and a `429` without `Retry-After` pauses the gateway's callers for five seconds.
+A `429` the gate cannot avoid still fails the ask after that pause and retry.
 
-A `429` from the gateway reading "The upstream provider is currently experiencing high demand" is the gateway shedding the request, often before any provider sees it.
-No client-side limiter can fix that: the gate pauses and backs off, but a shed request can fail at any rate, however low.
-Using a TypeSafe key directly with the default `typesafe` provider avoids that path.
+Answers cached through an unpinned provider expire within a day, because the model behind it can change without notice.
 
 ## Opening the gate
 
@@ -161,7 +159,7 @@ Asks within one run may overlap: when the run's ceiling is full, an attempt wait
 Use `describeError` for a safe diagnostic instead of logging a transport exception or provider response body.
 The errors it passes through are `ConfigError`, `ServiceError` (with the HTTP `status`), `SpendCapError`, `RedactionError` and `StateError`.
 
-`PINNED_MODEL`, `MAX_INPUT_TOKENS`, `usdFor(tokens)` and `estimateUsd(bytes)` describe the pinned model's request limit and price, which the gateway charges too.
+`PINNED_MODEL`, `MAX_INPUT_TOKENS`, `usdFor(tokens)` and `estimateUsd(bytes)` describe the pinned model's request limit and price, which the gate also books for the gateway.
 `jev.config.provider`, `jev.config.model` and `jev.config.pinned` say which provider and model id a caller's requests go to, and whether that model is pinned.
 `estimateUsd` uses the measured rate of about a quarter token per byte, for figures shown before a run; it is not a reservation.
 
@@ -177,7 +175,7 @@ The cache stores probabilities under caller-supplied string keys, and never the 
 Each key is stored as an HMAC under a private random key, so short keys such as source lines cannot be guessed from the stored hashes.
 Entries are filed by the caller's `scope` together with the provider, model, endpoint and never-send list, so changing any of them starts a fresh file.
 Entries hold only key hashes, probabilities and times.
-They expire after 30 days, a file mostly made of expired or superseded rows is rewritten on its next write, and files are evicted to keep the cache within 50 MiB.
+They expire after 30 days, or a day for an unpinned provider, and `jev.cache({ ttlMs })` can only shorten that; a file mostly made of expired or superseded rows is rewritten on its next write, and files are evicted to keep the cache within 50 MiB.
 A cache that cannot be read or written warns once through `notice` and continues without caching, not without spend accounting.
 
 ## Request ownership and persisted state
