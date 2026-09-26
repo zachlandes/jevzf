@@ -36,7 +36,8 @@ The built-in secret filter, spend ceilings, rate limiter and answer cache are on
 - The header shows what a search would cost before you press Enter, and what it cost after.
 - Pressing Enter again with the same words over the same lines is free: answers are cached per line.
 
-The picker copies what fzf reads into a private temporary file, so meaning search can read the lines again; the copy is deleted when fzf exits.
+The picker copies stdin into a private temporary file and fzf lists that copy as it grows, so meaning search can read the lines again; the copy is deleted when fzf exits.
+A meaning search on input that is still arriving runs on the complete lines so far and says so, as in `found in the first 120 lines so far`.
 It talks to fzf over a Unix socket in that private directory, never a TCP port.
 Without a key it still opens, and meaning mode says `Meaning search needs a TypeSafe key · export TYPESAFE_API_KEY` and sends nothing.
 Your `FZF_DEFAULT_OPTS` still apply, and its header takes your terminal's own text colour unless your fzf options set one.

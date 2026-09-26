@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { spawn, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, truncateSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { setTimeout as sleep } from "node:timers/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -163,19 +163,21 @@ async function standIn(t, { hold = false } = {}) {
   return { requests, endpoint: `http://127.0.0.1:${server.address().port}/v1/systemone` };
 }
 
-// Input given as [[delay, text], ...] comes from a slow producer that sends each part after its delay
+// Input given as [[when, text], ...] comes from a slow producer that sends each part after a delay
+// in seconds, or once a ["touch", when] step has created a gate file of that name
 function picker(t, { steps, env = {}, input, args = [], home }) {
   const dir = scratch(t);
   home ??= dir;
   const parts = Array.isArray(input) ? input : [[0, input]];
   parts.forEach(([, text], i) => writeFileSync(path.join(dir, `input.${i}`), text));
   const result = path.join(dir, "result");
-  const source = `(${parts.map(([delay], i) => `sleep ${delay}; cat '${path.join(dir, `input.${i}`)}'`).join("; ")}) |`;
+  const after = (when) => (typeof when === "string" ? `until [ -e '${path.join(dir, when)}' ]; do sleep 0.05; done` : `sleep ${when}`);
+  const source = `(${parts.map(([when], i) => `${after(when)}; cat '${path.join(dir, `input.${i}`)}'`).join("; ")}) |`;
   return new Promise((resolve) => {
     const child = spawn("python3", [driver], {
       env: {
         PATH: process.env.PATH, HOME: home, XDG_CONFIG_HOME: home, XDG_STATE_HOME: home, XDG_CACHE_HOME: home, TERM: "xterm-256color", LANG: "en_US.UTF-8",
-        JEVZF_FZF: fzfPath, FZF_DEFAULT_OPTS: "", STEPS: JSON.stringify(steps),
+        JEVZF_FZF: fzfPath, FZF_DEFAULT_OPTS: "", STEPS: JSON.stringify(steps), GATE_DIR: dir,
         COMMAND: `${source} ${[process.execPath, cli, ...args].map((part) => `'${part}'`).join(" ")} > '${result}'`,
         ...env
       }
@@ -261,14 +263,21 @@ test("picker: meaning search sees input that arrived after leaving fuzzy mode", 
 test("picker: a line split across chunks is never listed or searched until it is whole", { skip: !usableFzf }, async (t) => {
   const s = await standIn(t);
   const env = { TYPESAFE_API_KEY: "fixture-only", JEVZF_JEV_ENDPOINT: s.endpoint };
-  const input = [[0, "bump deps\nadd backoff\nretry fai"], [3, "led uploads\nfix typo\n"]];
-  const early = await picker(t, { input, env, steps: [["wait", "fuzzy>"], ["send", `${ESC}m`], ["wait", "2 lines so far"], ["send", "why"], ["wait", "why"], ["send", ENTER], ["wait", "in the first 2 lines so far"], ["send", ESC]] });
+  const input = [[0, "bump deps\nadd backoff\nretry fai"], ["rest", "led uploads\nfix typo\n"]];
+  const early = await picker(t, { input, env, steps: [["wait", "fuzzy>"], ["send", `${ESC}m`], ["wait", "2 lines so far"], ["send", "why"], ["wait", "why"], ["send", ENTER], ["wait", "in the first 2 lines so far"], ["touch", "rest"], ["send", ESC]] });
   assert.equal(early.code, 130, early.stderr);
   assert.deepEqual(Object.values(s.requests[0].state.items).sort(), ["add backoff", "bump deps"]);
-  // Leaving meaning follows the copy, so the line appears whole once the rest of it arrives
-  const later = await picker(t, { input, env, steps: [["wait", "fuzzy>"], ["send", `${ESC}m`], ["wait", "2 lines so far"], ["sleep", "3.5"], ["send", `${ESC}f`], ["wait", "fuzzy>"], ["send", "uploads"], ["wait", "1/4"], ["send", ENTER]] });
+  // The header catches up when the rest arrives, and leaving meaning follows the copy, so the line
+  // appears whole
+  const later = await picker(t, { input, env, steps: [["wait", "fuzzy>"], ["send", `${ESC}m`], ["wait", "2 lines so far"], ["touch", "rest"], ["wait", "enter · 4 lines\r"], ["send", `${ESC}f`], ["wait", "fuzzy>"], ["send", "uploads"], ["wait", "1/4"], ["send", ENTER]] });
   assert.equal(later.code, 0, later.stderr);
   assert.equal(later.output, "retry failed uploads\n");
+});
+
+test("meaning mode refuses input over 10 MiB without reading it", async (t) => {
+  const f = keyFixture(t, { TYPESAFE_API_KEY: "fixture-only" });
+  truncateSync(inputFile(f.dir), 10 * 1024 * 1024 + 1);
+  assert.match(await f.key("meaning"), /input exceeds 10 MiB; narrow the input first/);
 });
 
 test("picker: --read0 keeps multiline records whole through a meaning search", { skip: !usableFzf }, async (t) => {

@@ -43,6 +43,9 @@ def pump(timeout):
 
 try:
     for kind, text in steps:
+        if kind == "touch":
+            open(os.path.join(os.environ["GATE_DIR"], text), "w").close()
+            continue
         if kind == "sleep":
             deadline = time.monotonic() + float(text)
             while time.monotonic() < deadline:
