@@ -7,7 +7,7 @@
 Rate and spend limits for code that calls Jev in a loop.
 
 If you ask Jev the same kind of question many times, say a go/no-go on every new job posting for each of fifty students, three things go wrong at volume.
-Requests start failing with `429` (through a gateway it can read "The upstream provider is currently experiencing high demand"), and every caller that retries on its own schedule makes it worse.
+Requests start failing with `429`, and every caller that retries on its own schedule makes it worse.
 The same posting and question get sent twice, and you pay twice.
 And nothing stops a runaway loop before the bill does.
 
@@ -92,7 +92,11 @@ The built-in rules cover known secret formats and email addresses; redact text w
 
 ## Using Jev through Vercel AI Gateway
 
-> **Placeholder, to be filled or removed before release.**
+decision-gate 0.1.0 talks to TypeSafe directly with `TYPESAFE_API_KEY`; Vercel AI Gateway support is planned.
+
+A `429` from the gateway reading "The upstream provider is currently experiencing high demand" is the gateway shedding the request, often before any provider sees it, so lowering your own request rate may not clear it.
+Using a TypeSafe key directly with decision-gate avoids that path, and gives you one shared rate window and `429` pause across every process on the machine, plus a daily spend ceiling.
+Through the gateway, Jev is served under the floating id `typesafe-ai/jev` and cannot be pinned to `jev-1.13.0`.
 
 ## Opening the gate
 
