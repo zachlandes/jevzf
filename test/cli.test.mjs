@@ -520,24 +520,44 @@ test("credentials in real config formats lose their values while code references
   assert.deepEqual(sentItems(f.requests).sort(), cases.map(([, sent]) => sent).sort());
 });
 
-for (const [name, kind, terminated] of [
-  ["a private key piped as lines spanning batches", "RSA PRIVATE KEY", true],
-  ["a private key cut off before its END line", "RSA PRIVATE KEY", false],
-  ["a PGP private key block piped as lines", "PGP PRIVATE KEY BLOCK", true]
+for (const [name, kind, terminated, prefix] of [
+  ["a private key piped as lines spanning batches", "RSA PRIVATE KEY", true, () => ""],
+  ["a private key cut off before its END line, as by head", "RSA PRIVATE KEY", false, () => ""],
+  ["a PGP private key block piped as lines", "PGP PRIVATE KEY BLOCK", true, () => ""],
+  ["a private key in rg -n output", "RSA PRIVATE KEY", true, (i) => `keys/id_rsa:${i + 1}:`],
+  ["a cut-off private key in rg -n output", "OPENSSH PRIVATE KEY", false, (i) => `keys/id_ed25519:${i + 1}:`]
 ]) {
-  test(`${name} sends none of its body lines`, async (t) => {
+  test(`${name} sends none of its body lines and nothing after it`, async (t) => {
     const f = await fixture(t);
     const body = Array.from({ length: 30 }, (_, i) => `${String.fromCharCode(65 + (i % 26))}${"MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC".slice(0, 40)}${i}`);
-    const block = [`-----BEGIN ${kind}-----`, ...body, ...(terminated ? [`-----END ${kind}-----`] : [])];
+    const block = [`-----BEGIN ${kind}-----`, ...body, ...(terminated ? [`-----END ${kind}-----`] : [])].map((line, i) => prefix(i) + line);
     const filler = Array.from({ length: 20 }, (_, i) => `login ${i}`);
     const result = await f.run([...filler.slice(0, 10), ...block, ...filler.slice(10)].join("\n"));
     assert.equal(result.code, 0);
     assert.ok(f.requests.length > 2);
     const sent = sentItems(f.requests);
-    assert.equal(sent.filter((item) => item === "[private key]").length, terminated ? block.length : block.length + 10);
+    assert.equal(sent.filter((item) => item === "[private key]").length, block.length);
+    assert.deepEqual(sent.filter((item) => item.startsWith("login")).sort(), [...filler].sort());
     for (const line of block) assert.ok(f.requests.every((request) => !request.body.includes(line)));
   });
 }
+
+test("a private-key marker held in a string constant does not blank the lines after it", async (t) => {
+  const f = await fixture(t);
+  const lines = [
+    "src/pem.ts:1:// Headers for detecting key files",
+    'src/pem.ts:3:const HEADER = "-----BEGIN RSA PRIVATE KEY-----";',
+    "src/login.ts:1:export function signIn(user) {",
+    "src/login.ts:2:  return login(user);"
+  ];
+  await f.run(lines.join("\n"));
+  assert.deepEqual(sentItems(f.requests).sort(), [
+    "src/pem.ts:1:// Headers for detecting key files",
+    'src/pem.ts:3:const HEADER = "[private key]',
+    "src/login.ts:1:export function signIn(user) {",
+    "src/login.ts:2:  return login(user);"
+  ].sort());
+});
 
 test("optional redaction and the internal core use the same safe cached request path", async (t) => {
   const f = await fixture(t);
