@@ -46,7 +46,6 @@ async function screen(posting, student) {
   if (missing.length) {
     // One request answers every missing question over the same state
     const answer = await run.ask({
-      model: PINNED_MODEL,
       state,
       questions: Object.fromEntries(missing.map((name) => [name, questions[name]]))
     });
@@ -62,6 +61,9 @@ try {
   await run.close();
 }
 ```
+
+The request's `model` is optional; the gate sets it.
+A request that names a model other than `PINNED_MODEL` is refused.
 
 ## What it guarantees
 
