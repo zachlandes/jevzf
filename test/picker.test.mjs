@@ -23,15 +23,17 @@ function scratch(t) {
   return dir;
 }
 
-test("header lines fit the fzf width at 60, 76 and 120 columns and keep the key hint whole", () => {
+test("header lines fit the fzf width at 40, 60, 76 and 120 columns and keep the key hint whole", () => {
   const state = { mode: "meaning", phase: "ask" };
   const estimate = { lines: 1204, estimatedUsd: 0.012, perSearchUsd: 0.02, remainingUsd: 0.18 };
-  for (const columns of [60, 76, 120]) {
+  // fzf indents the header two columns and reserves one more, cutting longer lines with ··
+  for (const columns of [40, 60, 76, 120]) {
     const env = { ...utf8, FZF_COLUMNS: String(columns) };
-    for (const info of [{ estimate }, { problem: `Meaning search needs a TypeSafe key ${glyphs(env).dot} export TYPESAFE_API_KEY` }]) {
+    for (const info of [{ estimate }, { problem: `Meaning search needs a TypeSafe key ${glyphs(env).dot} export TYPESAFE_API_KEY` }, { problem: "input exceeds 10 MiB; narrow the input first" }]) {
       const lines = header({ state, env, info }).split("\n");
-      for (const line of lines) assert.ok(line.replace(/\x1b\[[0-9;]*m/g, "").length <= columns - 2, `${columns}: ${line}`);
-      if (info.problem) assert.ok(lines.some((line) => line.includes("export TYPESAFE_API_KEY")));
+      for (const line of lines) assert.ok(line.replace(/\x1b\[[0-9;]*m/g, "").length <= columns - 3, `${columns}: ${line}`);
+      if (info.problem?.includes("TYPESAFE_API_KEY")) assert.ok(lines.some((line) => line.includes("export TYPESAFE_API_KEY")));
+      assert.ok(lines.some((line) => line.includes("ctrl-s switch")));
     }
   }
   const wide = header({ state, env: { ...utf8, FZF_COLUMNS: "120" }, info: { estimate } }).split("\n");
