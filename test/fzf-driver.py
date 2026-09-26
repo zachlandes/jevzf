@@ -13,11 +13,13 @@ import time
 pid, fd = pty.fork()
 if pid == 0:
     fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 100, 0, 0))
+    # The README's recipe, plus a load hook so the driver knows when each list is in
     os.execvp("sh", ["sh", "-c", '''
-exec fzf --disabled --no-sort --query="$SEARCH_QUERY" \
-  --bind='ctrl-r:reload-sync(jevzf -- {q} < "$JEVZF_INPUT" || true)' \
-  --bind='load:execute-silent(touch "$READY")' \
-  < "$JEVZF_INPUT" > "$RESULT"
+SRC='cat "$JEVZF_INPUT"'
+eval "$SRC" | fzf --query="$SEARCH_QUERY" \
+    --bind "ctrl-space:reload($SRC | jevzf --closest 3 {q})+disable-search+change-prompt(meaning> )" \
+    --bind "ctrl-f:reload($SRC)+enable-search+change-prompt(> )" \
+    --bind 'load:execute-silent(touch "$READY")' > "$RESULT"
 '''])
 
 
@@ -39,7 +41,7 @@ def wait_ready():
 try:
     wait_ready()
     os.unlink(os.environ["READY"])
-    os.write(fd, b"\x12")
+    os.write(fd, b"\x00")
     wait_ready()
     os.write(fd, b"\r")
     deadline = time.monotonic() + 5

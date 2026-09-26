@@ -5,7 +5,7 @@ Licensed under the Apache License, Version 2.0.
 Meaning-search request construction, batching, redaction, spend budgeting,
 and the Jev client are adapted from zachlandes/herdr-find, commit 4736dd5
 (Apache-2.0), originally developed in Dewey.
-Modified for general line input, explicit key-file configuration, durable
+Modified for general line input, shared key handling, durable
 spend reservations, result caching and independent CLI use.
 
 Meaning-search questions derive from Needle by Shubham Saboo,

@@ -12,7 +12,11 @@
     "NOTICE"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
+  },
+  "exports": {
+    ".": "./lib/core.mjs",
+    "./core": "./lib/core.mjs"
   },
   "scripts": {
     "test": "node --test",

@@ -1,63 +1,122 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
-import { createSearch, describeError } from "../lib/core.mjs";
+import { openJev, searchByMeaning, estimateSearch, describeError } from "../lib/core.mjs";
 
 class UsageError extends Error {}
+const HELP = `Usage: cmd | jevzf [options] QUERY...
 
-const HELP = `Usage: cmd | jevzf "<query>"
+Jev-powered meaning search for fzf. Node.js 22+.
+Unofficial; not affiliated with TypeSafe.
 
-Print meaning-matched lines best-first. Requires Node.js 20+.
-Without a configured key, input passes through unchanged and nothing is sent.
+  --scores         Prefix each match with probability and a tab
+  --floor P        Minimum probability (default 0.58)
+  --closest N      Show N closest if none pass (default 0)
+  --max-cost USD   Lower this search's ceiling
+  --no-cache       Neither read nor write cached answers
+  --read0          Read and write NUL-separated records
+  --estimate       Estimate without a key or network
+  --help           Show help
+  --version        Show version
+  -- QUERY         Query beginning with a dash
 
-  --help       Show this help
-  --version    Show the version
-  -- QUERY     Search for a query beginning with a dash
-
-Config: $XDG_CONFIG_HOME/jevzf/config.json (default ~/.config/jevzf/config.json)
-JEVZF_CONFIG overrides the config path.
-JEVZF_KEY_FILE and JEVZF_REDACTION_FILE select private files explicitly.
-
-See README for setup, privacy, spend caps and stock fzf bindings.
+Meaning search needs only TYPESAFE_API_KEY.
+Config: ~/.config/jevzf/config.json (or $XDG_CONFIG_HOME/jevzf/config.json).
+Limits: JEVZF_RPM, JEVZF_TPS; spend: JEVZF_PER_SEARCH_USD, JEVZF_PER_DAY_USD.
+Built-in known secret formats are always filtered; a never-send file is optional.
 `;
 
-process.stdout.on("error", (error) => {
-  if (error.code === "EPIPE") process.exit(0);
-  process.exit(2);
-});
+process.stdout.on("error", (error) => process.exit(error.code === "EPIPE" ? 0 : 2));
 const notice = (message) => process.stderr.write(`jevzf: ${message}\n`);
+const controller = new AbortController();
+process.once("SIGINT", () => {
+  controller.abort(new Error("interrupted"));
+  // Handling SIGINT replaces the default exit, so an idle stdin read must be ended explicitly
+  process.stdin.destroy();
+});
+// Significant digits keep tiny amounts readable; cents stay visible on round amounts such as 0.20
+const usd = (value, digits = 3) => {
+  const text = new Intl.NumberFormat("en-US", { maximumSignificantDigits: digits }).format(value);
+  return `USD ${(text.split(".")[1]?.length ?? 0) >= 2 ? text : value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+const count = (value) => value.toLocaleString("en-US");
+const shellQuote = (text) => `'${text.replaceAll("'", "'\\''")}'`;
+
+function parse(args) {
+  const options = { floor: 0.58, closest: 0 };
+  const query = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--") { query.push(...args.slice(i + 1)); break; }
+    if (["--scores", "--read0", "--no-cache", "--estimate"].includes(arg)) { options[arg.slice(2)] = true; continue; }
+    if (["--floor", "--closest", "--max-cost"].includes(arg)) {
+      const value = args[++i];
+      const n = value?.trim() ? Number(value) : NaN;
+      if (!Number.isFinite(n) || n < 0 || (arg === "--floor" && n > 1) || (arg === "--closest" && !Number.isInteger(n))) throw new UsageError(`invalid ${arg}`);
+      options[arg.slice(2)] = n; continue;
+    }
+    if (arg.startsWith("-")) throw new UsageError("unknown option; use -- before a query beginning with a dash");
+    query.push(arg);
+  }
+  if (!query.join(" ").trim()) throw new UsageError("a meaning query is required; use --help");
+  return { ...options, query: query.join(" ") };
+}
 
 async function main() {
-  let args = process.argv.slice(2);
+  const args = process.argv.slice(2);
   if (args.length === 1 && args[0] === "--help") { process.stdout.write(HELP); return; }
-  if (args.length === 1 && args[0] === "--version") {
-    process.stdout.write(`${JSON.parse(readFileSync(new URL("../package.json", import.meta.url))).version}\n`); return;
+  if (args.length === 1 && args[0] === "--version") { process.stdout.write(`${JSON.parse(readFileSync(new URL("../package.json", import.meta.url))).version}\n`); return; }
+  const opts = parse(args);
+  if (process.stdin.isTTY) throw new UsageError("pipe text into jevzf");
+  const jev = openJev({ notice });
+  const status = jev.status();
+  if (!opts.estimate && status.missing) {
+    throw new UsageError(`meaning search needs a TypeSafe API key; nothing was sent.
+  export TYPESAFE_API_KEY=...   (get one at console.typesafe.ai/settings/keys)
+  To see what this search would cost first: jevzf --estimate ${shellQuote(opts.query.replace(/[\x00-\x1f\x7f]/g, " "))}`);
   }
-  if (args[0] === "--") args = args.slice(1);
-  else if (args[0]?.startsWith("-")) throw new UsageError("unknown option; use -- before a query beginning with a dash");
-  if (args.length !== 1 || !args[0].trim()) throw new UsageError('usage: cmd | jevzf "<query>"');
-  if (process.stdin.isTTY) throw new UsageError("pipe newline-delimited text into jevzf");
-  const engine = createSearch({ notice });
-  if (!engine.enabled) {
-    for await (const chunk of process.stdin) {
-      if (!process.stdout.write(chunk)) await new Promise((resolve) => process.stdout.once("drain", resolve));
-    }
-    return;
-  }
+  if (!opts.estimate && !status.ok) throw new UsageError(status.reason);
   const chunks = [];
   let bytes = 0;
   for await (const chunk of process.stdin) {
+    controller.signal.throwIfAborted();
     bytes += chunk.length;
     if (bytes > 10 * 1024 * 1024) throw new UsageError("input exceeds 10 MiB; narrow the input first");
     chunks.push(chunk);
   }
-  const input = Buffer.concat(chunks).toString("utf8");
-  if (input.includes("\0")) throw new UsageError("NUL-delimited or binary input is not supported; use newline-delimited text");
-  const result = await engine.search({ query: args[0], lines: input.split(/\r?\n/) });
-  if (result.lines.length) process.stdout.write(`${result.lines.join("\n")}\n`);
-  else process.exitCode = 1;
+  controller.signal.throwIfAborted();
+  const input = Buffer.concat(chunks);
+  const delimiter = opts.read0 ? 0 : 10;
+  if (!opts.read0 && input.includes(0)) throw new UsageError("NUL input needs --read0");
+  // Retain original bytes and terminators; scoring only receives decoded text
+  const records = [];
+  for (let start = 0; start < input.length;) {
+    const end = input.indexOf(delimiter, start);
+    const stop = end < 0 ? input.length : end;
+    const bytes = input.subarray(start, stop);
+    records.push({ text: bytes.toString("utf8"), bytes, terminated: end >= 0 });
+    start = end < 0 ? input.length : end + 1;
+  }
+  const search = { jev, items: records, query: opts.query, capUsd: opts["max-cost"] };
+  const estimate = estimateSearch(search);
+  if (opts.estimate) {
+    process.stdout.write(`${count(estimate.lines)} lines · about ${usd(estimate.estimatedUsd, 2)} · never more than ${usd(estimate.perSearchUsd)} per search · ${usd(estimate.perDayUsd)} per day · ${count(estimate.changed)} lines changed by the never-send check\n`);
+    return;
+  }
+  if (process.stderr.isTTY) notice(`about ${usd(estimate.estimatedUsd, 2)} · never more than ${usd(estimate.perSearchUsd)} per search · ${usd(await jev.remaining())} left today`);
+  const start = performance.now();
+  const result = await searchByMeaning({ ...search, floor: opts.floor, closest: opts.closest, noCache: opts["no-cache"], signal: controller.signal });
+  for (const [index, match] of result.matches.entries()) {
+    if (opts.scores) process.stdout.write(`${match.p.toFixed(2)}\t`);
+    process.stdout.write(match.item.bytes);
+    // A moved unterminated record still needs a separator before the next record
+    if (match.item.terminated || index < result.matches.length - 1) process.stdout.write(Buffer.from([delimiter]));
+  }
+  if (process.stderr.isTTY) notice(`${count(result.matches.length)} found in ${count(estimate.lines)} lines · ${((performance.now() - start) / 1000).toFixed(1)} s · ${usd(result.spend)}`);
+  if (!result.matches.length) process.exitCode = 1;
 }
 
 main().catch((error) => {
+  if (controller.signal.aborted) { process.exitCode = 130; return; }
   notice(error instanceof UsageError ? error.message : describeError(error));
   process.exitCode = 2;
 });
