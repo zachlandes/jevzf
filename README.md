@@ -10,11 +10,11 @@ The results come back best first, and typing then narrows them like any fzf list
 ## Try it
 
 Requires Node.js 22 or newer, and fzf 0.66 or newer for the picker.
-jevzf is not on npm yet; to try this checkout:
+jevzf is not on npm yet; to try this checkout, pack it with the `decision-gate` package it is built on and install both:
 
 ```sh
-npm pack
-npm install -g ./jevzf-0.1.0.tgz
+npm pack --workspaces --include-workspace-root
+npm install -g ./decision-gate-0.1.0.tgz ./jevzf-0.1.0.tgz
 git log --oneline | jevzf                          # fzf; ctrl-s for meaning, then type and press enter
 export TYPESAFE_API_KEY=...                        # console.typesafe.ai/settings/keys
 git log --oneline | jevzf "when did we change the retry logic"   # the same search as a plain filter
@@ -140,19 +140,20 @@ One person's searches should never reach these limits; they matter when several 
 ## Configuration
 
 No configuration is needed.
-To change the defaults, create `~/.config/jevzf/config.json` (or `$XDG_CONFIG_HOME/jevzf/config.json`) with any of these lines:
+To change the defaults, create `~/.config/decision-gate/config.json` (or `$XDG_CONFIG_HOME/decision-gate/config.json`) with any of these lines:
 
 ```json
 {
-  "key_file": "~/.config/jevzf/key",
-  "never_send_file": "~/.config/jevzf/never-send.json",
-  "spend": { "per_search_usd": 0.02, "per_day_usd": 0.2 },
+  "key_file": "~/.config/decision-gate/key",
+  "never_send_file": "~/.config/decision-gate/never-send.json",
+  "spend": { "per_run_usd": 0.02, "per_day_usd": 0.2 },
   "limits": { "requests_per_minute": 1200, "tokens_per_second": 250000, "share": 0.8 }
 }
 ```
 
-`limits` describes your TypeSafe account, and `share` is the part of it jevzf may use.
-For one-off runs and CI, `JEVZF_PER_SEARCH_USD`, `JEVZF_PER_DAY_USD`, `JEVZF_RPM` and `JEVZF_TPS` override the file, and `JEVZF_CONFIG` points at another file.
+The file belongs to [decision-gate](packages/decision-gate/README.md), so every tool built on it reads the same ceilings and limits; `per_run_usd` is jevzf's per-search ceiling.
+`limits` describes your TypeSafe account, and `share` is the part of it those tools may use.
+For one-off runs and CI, `DECISION_GATE_PER_RUN_USD`, `DECISION_GATE_PER_DAY_USD`, `DECISION_GATE_RPM` and `DECISION_GATE_TPS` override the file, and `DECISION_GATE_CONFIG` points at another file.
 Relative paths in the file resolve beside it, and `~/` works.
 
 The key comes from `TYPESAFE_API_KEY` first, then `key_file`, which must be mode 600; no other location is read.
@@ -192,7 +193,7 @@ Known limits:
 - An apostrophe earlier on the line, as in prose like "don't", can shift where a value ends, so part of it is sent.
 - On the over-redaction side, `rg -n` output from an extensionless file named after a secret word loses its content, for example `bin/token:12:#!/bin/sh`.
 
-For private values no pattern can know, such as names, customer ids or internal hosts, add a never-send list and point `never_send_file` or `JEVZF_NEVER_SEND_FILE` at it (mode 600):
+For private values no pattern can know, such as names, customer ids or internal hosts, add a never-send list and point `never_send_file` or `DECISION_GATE_NEVER_SEND_FILE` at it (mode 600):
 
 ```json
 {
@@ -205,15 +206,14 @@ For private values no pattern can know, such as names, customer ids or internal 
 Patterns are JavaScript regular expressions that also accept a leading `(?i)`, `(?m)` or `(?s)` and `\1` or `\g<name>` replacements; backslashes need escaping in JSON.
 No filter can promise to find every private detail, so choose what you pipe in.
 
-The answer cache in `~/.cache/jevzf/answers` stores keyed hashes of lines and their probabilities for 30 days, never the query or the text, and stays under 50 MiB.
-Spend and rate records in `~/.local/state/jevzf` hold times, amounts and a fingerprint of the key, never the key or any text.
+The answer cache in `~/.cache/decision-gate/answers` stores keyed hashes of lines and their probabilities for 30 days, never the query or the text, and stays under 50 MiB.
+Spend and rate records in `~/.local/state/decision-gate` hold times, amounts and a fingerprint of the key, never the key or any text.
 Either directory can be deleted while no search is running; deleting `spend` also forgets today's spending.
 
 ## Library
 
-The CLI is a thin layer over `jevzf/core`, which owns every call to Jev: the key, the secret filter, the ceilings, the rate limiter and the cache.
-Other tools can use it; see [the core library](docs/core.md).
-Its interface may change before 1.0.
+jevzf is built on [decision-gate](packages/decision-gate/README.md), which owns every call to Jev: the key, the secret filter, the ceilings, the rate limiter, the answer cache and the cost ledger.
+Meaning search itself stays inside jevzf and has no public import path.
 
 ## Development
 
@@ -224,9 +224,10 @@ npm run lint
 npm pack --dry-run
 ```
 
-The one runtime dependency is TypeSafe's official SDK, `@typesafe-ai/sdk`, pinned to 0.6.0, which has no dependencies or install scripts of its own.
+The repository is an npm workspace: jevzf at the root and decision-gate in `packages/decision-gate`, and `npm test` runs both.
+decision-gate's one runtime dependency is TypeSafe's official SDK, `@typesafe-ai/sdk`, pinned to 0.6.0, which has no dependencies or install scripts of its own.
 Tests use a loopback stand-in for TypeSafe and never a real key.
-For tests only, `JEVZF_JEV_ENDPOINT` may point at an HTTP URL on `127.0.0.1` or `::1`; any other host is refused, and redirects are never followed.
+For tests only, `DECISION_GATE_ENDPOINT` may point at an HTTP URL on `127.0.0.1` or `::1`; any other host is refused, and redirects are never followed.
 CI runs on Node.js 22, 24 and 26.
 
 ## Releasing

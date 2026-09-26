@@ -4,7 +4,7 @@ import { openJev, searchByMeaning, estimateSearch, describeError, MAX_INPUT_BYTE
 import { usd, count, shellQuote } from "../lib/format.mjs";
 import { splitRecords } from "../lib/records.mjs";
 import { runPicker, PickerError } from "../lib/picker/run.mjs";
-import { MAX_INPUT_TOKENS, usdFor } from "../lib/meaning/jev.mjs";
+import { MAX_INPUT_TOKENS, usdFor } from "decision-gate";
 
 class UsageError extends Error {}
 const HELP = `Usage: cmd | jevzf [options]           pick in fzf, with a meaning mode
@@ -28,8 +28,9 @@ jump); in meaning, type what you mean and press enter.
   -- QUERY         Query beginning with a dash
 
 Meaning search needs only TYPESAFE_API_KEY.
-Config: ~/.config/jevzf/config.json (or $XDG_CONFIG_HOME/jevzf/config.json).
-Limits: JEVZF_RPM, JEVZF_TPS; spend: JEVZF_PER_SEARCH_USD, JEVZF_PER_DAY_USD.
+Config: ~/.config/decision-gate/config.json, shared with other decision-gate tools.
+Limits: DECISION_GATE_RPM, DECISION_GATE_TPS; spend: DECISION_GATE_PER_RUN_USD,
+DECISION_GATE_PER_DAY_USD.
 Built-in known secret formats are always filtered; a never-send file is optional.
 `;
 

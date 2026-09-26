@@ -1,5 +1,7 @@
-// Spend accounting adapted from herdr-find 4736dd5 (Apache-2.0)
+// Adapted from herdr-find 4736dd5 (Apache-2.0)
 import { APIError, RateLimitError, TypeSafeClient } from "@typesafe-ai/sdk";
+import { usdAt } from "../budget.mjs";
+import { ServiceError } from "../errors.mjs";
 
 export const JEV_ENDPOINT = "https://api.typesafe.ai/v1/systemone";
 export const PINNED_MODEL = "jev-1.13.0";
@@ -11,110 +13,30 @@ export const JEV_PRICE = {
   checked: "2026-09-25"
 };
 
-// Reserve the documented model context ceiling, not an empirical bytes/token ratio
+// Reserve the documented model context ceiling, not an empirical bytes/token ratio. Pending the
+// meaning-search comparison's check: a third-party report puts the real per-request limit near
+// 32k, so change this only once that check reports, never on a guess
 export const MAX_INPUT_TOKENS = 65536;
-// For estimates shown before a search, the measured rate rather than the reservation
+// For estimates shown before a run, the measured rate rather than the reservation
 export const ESTIMATE_TOKENS_PER_BYTE = 0.25;
 
-export class SpendCapError extends Error {
-  constructor(message) {
-    super(message);
-    this.name = "SpendCapError";
-  }
-}
-
-export class ServiceError extends Error {
-  constructor(message, { status } = {}) {
-    super(message);
-    this.name = "ServiceError";
-    this.status = status;
-  }
-}
-
-export const usdFor = (tokens, price = JEV_PRICE) => (tokens * price.usd_per_million_input_tokens) / 1e6;
+export const usdFor = (tokens) => usdAt(JEV_PRICE, tokens);
 
 export const estimateUsd = (bytes) => usdFor(bytes * ESTIMATE_TOKENS_PER_BYTE);
 
 // Only a loopback address may stand in for TypeSafe, so a test's stand-in can never be a real host
 // the key would be sent to
-export function jevEndpoint(env = process.env) {
-  const wanted = env.JEVZF_JEV_ENDPOINT;
+function endpoint(env = process.env) {
+  const wanted = env.DECISION_GATE_ENDPOINT;
   if (!wanted) return JEV_ENDPOINT;
   try {
     const url = new URL(wanted);
     if (url.protocol === "http:" && !url.username && !url.password && ["127.0.0.1", "[::1]"].includes(url.hostname)) return url.href;
   } catch { /* Report a generic error without echoing the supplied URL */ }
-  throw new ServiceError("JEVZF_JEV_ENDPOINT must be a numeric HTTP loopback URL");
+  throw new ServiceError("DECISION_GATE_ENDPOINT must be a numeric HTTP loopback URL");
 }
 
-// A spend cap enforced before every send: an attempt reserves its worst case first and is refused
-// if the reservation would pass the cap. A response books its billed tokens; an attempt that may
-// have reached the service without a usable answer books its reservation, since it may be billed.
-export function createSpendBudget({ capUsd, spentUsd = 0, price = JEV_PRICE, onChange = () => {} }) {
-  if (!(Number.isFinite(capUsd) && capUsd >= 0)) throw new TypeError("a nonnegative spend cap in USD is required");
-  let booked = spentUsd;
-  let reserved = 0;
-  let open = 0;
-  let billedTokens = 0;
-  let unknownAttempts = 0;
-  let waiters = [];
-  const wake = () => { for (const resolve of waiters) resolve(); waiters = []; };
-  const reserve = (tokens) => {
-    const usd = usdFor(tokens, price);
-    if (booked + reserved + usd > capUsd) throw new SpendCapError("spend cap reached");
-    reserved += usd;
-    open += 1;
-    onChange(booked + reserved);
-    let active = true;
-    const finish = () => { active = false; reserved -= usd; open -= 1; };
-    return {
-      settle(billed) {
-        if (!active) return;
-        finish();
-        if (Number.isInteger(billed) && billed >= 0) {
-          booked += usdFor(billed, price);
-          billedTokens += billed;
-        } else {
-          booked += usd;
-          unknownAttempts += 1;
-        }
-        onChange(booked + reserved);
-        wake();
-      },
-      release() {
-        if (!active) return;
-        finish();
-        onChange(booked + reserved);
-        wake();
-      }
-    };
-  };
-  return {
-    capUsd,
-    reserve,
-    // Attempts in flight usually settle far below their worst case, so a full cap waits for one
-    // of them before refusing; with nothing in flight the refusal is final
-    async acquire(tokens, signal) {
-      for (;;) {
-        signal?.throwIfAborted();
-        try { return reserve(tokens); }
-        catch (error) { if (!(error instanceof SpendCapError) || !open) throw error; }
-        await new Promise((resolve, reject) => {
-          const abort = () => reject(signal.reason);
-          signal?.addEventListener("abort", abort, { once: true });
-          waiters.push(() => { signal?.removeEventListener("abort", abort); resolve(); });
-        });
-      }
-    },
-    // What is committed so far, counting requests still in flight at their reservation
-    committedUsd: () => booked + reserved,
-    summary() {
-      return { cap_usd: capUsd, committed_usd: booked + reserved, billed_input_tokens: billedTokens, attempts_booked_at_reservation: unknownAttempts };
-    }
-  };
-}
-
-export function createResponder({ key, budget, assertSafe, limiter, book = async () => {}, fetchImpl = globalThis.fetch, endpoint = JEV_ENDPOINT, timeoutMs = 30000, maxRetries = 2 }) {
+function createResponder({ key, budget, assertSafe, limiter, book = async () => {}, fetchImpl = globalThis.fetch, endpoint = JEV_ENDPOINT, timeoutMs = 30000, maxRetries = 2 }) {
   if (!key?.authorization || !budget || !assertSafe) throw new TypeError("key, spend budget and never-send check are required");
   return async (request, { signal } = {}) => {
     if (request.model !== PINNED_MODEL) throw new ServiceError("request model is not pinned");
@@ -193,3 +115,13 @@ export function createResponder({ key, budget, assertSafe, limiter, book = async
     return json;
   };
 }
+
+export const typesafe = Object.freeze({
+  name: "typesafe",
+  label: "TypeSafe",
+  keyEnv: "TYPESAFE_API_KEY",
+  model: PINNED_MODEL,
+  price: JEV_PRICE,
+  endpoint,
+  respond: createResponder
+});

@@ -15,11 +15,14 @@
     "node": ">=22"
   },
   "exports": {
-    "./core": "./lib/core.mjs"
+    "./package.json": "./package.json"
   },
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "test": "node --test",
-    "lint": "node --check bin/jevzf.mjs && find lib test scripts -name '*.mjs' -exec node --check {} \\;"
+    "lint": "node --check bin/jevzf.mjs && find lib test scripts packages/decision-gate/lib packages/decision-gate/test -name '*.mjs' -exec node --check {} \\;"
   },
   "license": "Apache-2.0",
   "repository": {
@@ -37,6 +40,6 @@
     "cli"
   ],
   "dependencies": {
-    "@typesafe-ai/sdk": "0.6.0"
+    "decision-gate": "^0.1.0"
   }
 }

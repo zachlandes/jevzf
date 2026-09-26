@@ -107,7 +107,7 @@ SIGHUP: exit 129, hold closed: true, held only what may have been billed: true, 
 With only a little of today's allowance left, a 200-line search warns first, prints the matches from the lines it could judge, and says which ceiling stopped it and how many lines went unjudged, in input order.
 
 ```bash
-node stand-in.mjs 'awk "BEGIN { for (i = 0; i < 200; i++) print (i % 20 == 0 ? \"commit \" i \" retry uploads\" : \"commit \" i \" other work\") }" > $HOME/in; JEVZF_PER_DAY_USD=0.003 jevzf retry < $HOME/in; echo "exit $?"'
+node stand-in.mjs 'awk "BEGIN { for (i = 0; i < 200; i++) print (i % 20 == 0 ? \"commit \" i \" retry uploads\" : \"commit \" i \" other work\") }" > $HOME/in; DECISION_GATE_PER_DAY_USD=0.003 jevzf retry < $HOME/in; echo "exit $?"'
 ```
 
 ```output
@@ -122,7 +122,7 @@ exit 0
 When the ceiling cannot cover even one request, the search sends nothing and exits 2, instead of looking like a search that found nothing.
 
 ```bash
-node stand-in.mjs 'echo commit 1 retry uploads | JEVZF_PER_DAY_USD=0.002 jevzf retry; echo "exit $?"; echo "lines sent: $(wc -l < "$SENT" | tr -d " ")"'
+node stand-in.mjs 'echo commit 1 retry uploads | DECISION_GATE_PER_DAY_USD=0.002 jevzf retry; echo "exit $?"; echo "lines sent: $(wc -l < "$SENT" | tr -d " ")"'
 ```
 
 ```output

@@ -175,7 +175,7 @@ async function main() {
       const env = {
         ...UTF8, TERM: "xterm-256color", COLORTERM: "truecolor", FZF_DEFAULT_OPTS: "", NO_COLOR: null,
         HOME: home, XDG_CONFIG_HOME: home, XDG_STATE_HOME: home, XDG_CACHE_HOME: home, TMPDIR: dir,
-        TYPESAFE_API_KEY: spec.key === false ? null : "stand-in-no-real-key", JEVZF_JEV_ENDPOINT: endpoint,
+        TYPESAFE_API_KEY: spec.key === false ? null : "stand-in-no-real-key", DECISION_GATE_ENDPOINT: endpoint,
         PATH: process.env.PATH,
         ...spec.env
       };

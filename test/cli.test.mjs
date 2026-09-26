@@ -7,7 +7,7 @@ import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { MAX_INPUT_TOKENS, usdFor, PINNED_MODEL } from "../lib/meaning/jev.mjs";
+import { MAX_INPUT_TOKENS, usdFor, PINNED_MODEL } from "decision-gate";
 
 const cli = process.env.JEVZF_TEST_CLI ? path.resolve(process.env.JEVZF_TEST_CLI) : fileURLToPath(new URL("../bin/jevzf.mjs", import.meta.url));
 const fzfVersion = spawnSync("fzf", ["--version"], { encoding: "utf8" }).stdout?.match(/^(\d+)\.(\d+)/);
@@ -39,9 +39,9 @@ async function fixture(t, respond) {
   configure({});
   const env = {
     PATH: process.env.PATH, HOME: dir, XDG_CONFIG_HOME: dir, XDG_CACHE_HOME: dir,
-    JEVZF_CONFIG: config, JEVZF_STATE_DIR: path.join(dir, "state"),
-    JEVZF_NEVER_SEND_FILE: redaction,
-    JEVZF_JEV_ENDPOINT: `http://127.0.0.1:${server.address().port}/v1/systemone`
+    DECISION_GATE_CONFIG: config, XDG_STATE_HOME: path.join(dir, "state"),
+    DECISION_GATE_NEVER_SEND_FILE: redaction,
+    DECISION_GATE_ENDPOINT: `http://127.0.0.1:${server.address().port}/v1/systemone`
   };
   t.after(async () => {
     server.closeAllConnections();
@@ -58,7 +58,7 @@ async function fixture(t, respond) {
     child.stdin.on("error", () => {});
     child.stdin.end(input);
   });
-  const ledgerFile = path.join(dir, "state/spend", `${fingerprint}.jsonl`);
+  const ledgerFile = path.join(dir, "state/decision-gate/spend/typesafe", `${fingerprint}.jsonl`);
   const ledger = () => readFileSync(ledgerFile, "utf8").trim().split("\n").map(JSON.parse);
   return { dir, requests, run, env, config, configure, key, redaction, ledger, ledgerFile };
 }
@@ -116,7 +116,7 @@ test("daily cap persists across processes while cached results remain free", asy
 
 test("a cached repeat estimates nothing to send and does not warn about its ceiling", async (t) => {
   const f = await fixture(t);
-  f.configure({ spend: { per_search_usd: reservation } });
+  f.configure({ spend: { per_run_usd: reservation } });
   assert.match((await f.run("login\n")).stderr, /this search may need more than its USD [0-9.]+ ceiling/);
   const repeat = await f.run("login\n");
   assert.equal(repeat.code, 0);
@@ -139,7 +139,7 @@ test("key sources are the config key_file or TYPESAFE_API_KEY, never a JEVZF_KEY
 
 test("simultaneous CLI processes cannot allocate the same daily allowance", async (t) => {
   const f = await fixture(t, async () => { await new Promise((resolve) => setTimeout(resolve, 150)); });
-  f.configure({ spend: { per_day_usd: reservation, per_search_usd: reservation } });
+  f.configure({ spend: { per_day_usd: reservation, per_run_usd: reservation } });
   const results = await Promise.all([f.run("login\n", "query one"), f.run("login\n", "query two")]);
   assert.deepEqual(results.map((r) => r.code).sort(), [0, 2]);
   assert.equal(f.requests.length, 1);
@@ -147,7 +147,7 @@ test("simultaneous CLI processes cannot allocate the same daily allowance", asyn
 
 test("uncertain failures consume their reservation and retries cannot exceed the cap", async (t) => {
   const f = await fixture(t, (_req, res) => { res.writeHead(503); res.end("private provider error"); return true; });
-  f.configure({ spend: { per_search_usd: reservation, per_day_usd: reservation } });
+  f.configure({ spend: { per_run_usd: reservation, per_day_usd: reservation } });
   const result = await f.run("login\n");
   assert.equal(result.code, 2);
   assert.equal(f.requests.length, 1);
@@ -194,11 +194,11 @@ test("SDK environment settings cannot redirect credentials or turn on request lo
 test("zero caps permit cached results but no paid request; malformed env amounts fail", async (t) => {
   const f = await fixture(t);
   assert.equal((await f.run("login\n")).code, 0);
-  assert.equal((await f.run("login\n", "authentication", { JEVZF_PER_SEARCH_USD: "0" })).code, 0);
-  const refused = await f.run("login\n", "different", { JEVZF_PER_SEARCH_USD: "0" });
+  assert.equal((await f.run("login\n", "authentication", { DECISION_GATE_PER_RUN_USD: "0" })).code, 0);
+  const refused = await f.run("login\n", "different", { DECISION_GATE_PER_RUN_USD: "0" });
   assert.equal(refused.code, 2);
   assert.match(refused.stderr, /this search's spend ceiling cannot cover one request/);
-  assert.equal((await f.run("login\n", "query", { JEVZF_PER_DAY_USD: "not-a-number" })).code, 2);
+  assert.equal((await f.run("login\n", "query", { DECISION_GATE_PER_DAY_USD: "not-a-number" })).code, 2);
   assert.equal(f.requests.length, 1);
 });
 
@@ -211,7 +211,7 @@ test("malformed responses fail and are never cached", async (t) => {
 
 test("remote endpoint overrides and redirects cannot receive the credential", async (t) => {
   const f = await fixture(t, (_req, res) => { res.writeHead(307, { location: "/stolen" }); res.end(); return true; });
-  assert.equal((await f.run("login\n", "query", { JEVZF_JEV_ENDPOINT: "https://example.com/" })).code, 2);
+  assert.equal((await f.run("login\n", "query", { DECISION_GATE_ENDPOINT: "https://example.com/" })).code, 2);
   assert.equal(f.requests.length, 0);
   assert.equal((await f.run("login\n")).code, 2);
   assert.equal(f.requests.length, 1);
@@ -219,7 +219,7 @@ test("remote endpoint overrides and redirects cannot receive the credential", as
 
 test("invalid config, missing privacy rules, empty key and oversized input send nothing", async (t) => {
   const f = await fixture(t);
-  assert.equal((await f.run("login\n", "query", { JEVZF_NEVER_SEND_FILE: path.join(f.dir, "missing") })).code, 2);
+  assert.equal((await f.run("login\n", "query", { DECISION_GATE_NEVER_SEND_FILE: path.join(f.dir, "missing") })).code, 2);
   assert.equal((await f.run("login\n", "x".repeat(401))).code, 2);
   assert.equal((await f.run("a".repeat(24001))).code, 2);
   f.configure({ spend: { per_day_usd: -1 } });

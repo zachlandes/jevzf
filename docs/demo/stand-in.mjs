@@ -43,7 +43,7 @@ const child = spawn("sh", ["-c", snippet], {
     PATH: `${bin}:${process.env.PATH}`, HOME: home, LANG: "en_US.UTF-8",
     XDG_CONFIG_HOME: home, XDG_STATE_HOME: home, XDG_CACHE_HOME: home,
     TYPESAFE_API_KEY: "stand-in-not-a-real-key",
-    JEVZF_JEV_ENDPOINT: `http://127.0.0.1:${server.address().port}/v1/systemone`,
+    DECISION_GATE_ENDPOINT: `http://127.0.0.1:${server.address().port}/v1/systemone`,
     SENT: sent, ARRIVED: arrived
   }
 });

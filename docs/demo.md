@@ -10,9 +10,9 @@ Run from the repository root:
 ```sh
 mkdir -p .tmp
 npm ci --ignore-scripts
-npm pack --pack-destination .tmp
+npm pack --workspaces --include-workspace-root --pack-destination .tmp
 npm install -g --ignore-scripts --no-audit --no-fund \
-  --prefix "$PWD/.tmp/install" "$PWD/.tmp/jevzf-0.1.0.tgz"
+  --prefix "$PWD/.tmp/install" "$PWD/.tmp/decision-gate-0.1.0.tgz" "$PWD/.tmp/jevzf-0.1.0.tgz"
 printf 'garden tools\nlogin service\n' |
   env -i PATH="$PATH" HOME="$PWD/.tmp/empty-home" \
   .tmp/install/bin/jevzf 'signing in'
@@ -43,7 +43,7 @@ JEVZF_TEST_CLI="$PWD/.tmp/install/bin/jevzf" npm test
 The CLI tests spawn real processes against a numeric-loopback HTTP stand-in.
 They observe request bodies and authorization, original-line output, persisted reservations, cache hits, retry behavior, concurrent processes, recovery after killing a process during a request, and Ctrl-C both while reading stdin and during a request.
 They also prove that configured SDK environment variables cannot redirect the credential or turn on body logging.
-The core tests run the shared limiter in three separate processes, reclaim locks left by dead or stopped owners, compact the ledger and cache, and cancel a search mid-request.
+decision-gate's tests run the shared limiter in three separate processes, reclaim locks left by dead or stopped owners, and compact the ledger and cache; jevzf's search tests cancel a search mid-request.
 
 When stock fzf 0.65 or newer and Python 3 are present, a PTY test runs the README's binding recipe, presses Ctrl-Space, waits for its reload, and presses Enter.
 After the mocked meaning response, the selected output is `login service`, the second input line.
@@ -60,7 +60,7 @@ Unit tests fit the header to 40, 60, 76 and 120 columns, fall back to ASCII glyp
 
 ## Live Jev check
 
-The authorized synthetic check ran on 2026-09-26 against the first release candidate, before the core library described in [the core library](core.md), with the pinned `jev-1.13.0` through the official SDK.
+The authorized synthetic check ran on 2026-09-26 against the first release candidate, before the core library that is now [decision-gate](../packages/decision-gate/README.md), with the pinned `jev-1.13.0` through the official SDK.
 No live check has been run against this core yet.
 It sent one request over these made-up lines, with a $0.003 search ceiling and a $0.009 rolling-day ceiling:
 

@@ -1,10 +1,11 @@
 import path from "node:path";
-import { clock, locked, readJson, writeJson, StateError } from "./state.mjs";
+import { StateError } from "./errors.mjs";
+import { clock, locked, readJson, writeJson } from "./state.mjs";
 
 const localWindows = new Map();
 
-export function createLimiter({ stateDir, fingerprint, limits, notice = () => {}, time = clock }) {
-  const file = path.join(stateDir, "limits", `${fingerprint}.json`);
+export function createLimiter({ dir, fingerprint, limits, notice = () => {}, time = clock }) {
+  const file = path.join(dir, `${fingerprint}.json`);
   const rpm = Math.floor(limits.requestsPerMinute * limits.share);
   const tps = Math.floor(limits.tokensPerSecond * limits.share);
   let local = false;
@@ -29,7 +30,7 @@ export function createLimiter({ stateDir, fingerprint, limits, notice = () => {}
   };
   return {
     async take(tokens, signal) {
-      if (rpm < 1 || tokens > tps) throw new StateError("configured rate limits cannot fit one reserved request; increase JEVZF_RPM or JEVZF_TPS");
+      if (rpm < 1 || tokens > tps) throw new StateError("configured rate limits cannot fit one reserved request; increase DECISION_GATE_RPM or DECISION_GATE_TPS");
       for (;;) {
         signal?.throwIfAborted();
         const wait = await transaction((state) => {
