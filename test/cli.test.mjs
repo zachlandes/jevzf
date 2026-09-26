@@ -321,18 +321,91 @@ for (const status of [429, 529]) {
   });
 }
 
-test("readable file paths reach Jev while long base64 and hex secrets are redacted", () => {
-  const redactor = createRedactor();
-  for (const line of ["./packages/i18n/src/translations/localeLoader.ts", "./src/components/dashboard/v2/widgets/chart_legend.tsx", "./docs/2024/meeting-notes/quarterly_planning_review.md"]) {
-    assert.equal(redactor.redact(line), line);
-  }
-  assert.equal(redactor.redact("blob q8Zt3Kp/Wm4xR7vN2bYc+Hj9LsQe/1fGdA0uTkPiXo5E="), "blob [long token]");
-  assert.equal(redactor.redact("sha 3f786850e387550fdab836ed7e6dc881de23001b"), "sha [long token]");
-  assert.equal(redactor.redact("key JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"), "key [long token]");
-  const readable = "home/user/projects/service/src/components/dashboard/widgets/charts/legend/items/labels/format/locale/strings/english/common/shared/";
-  assert.equal(redactor.redact(`${readable}3f786850e387550fdab836ed7e6dc881de23001b`), "[long token]");
-  assert.equal(redactor.redact(`${readable}q8Zt3Kp/Wm4xR7vN2bYc+Hj9LsQe/1fGdA0uTkPiXo5E=`), "[long token]");
+const sentItems = (requests) => requests.flatMap((request) => Object.values(request.parsed.state.items));
+
+test("readable file paths, including digit-bearing camelCase names and @2x assets, reach Jev unchanged", async (t) => {
+  const f = await fixture(t);
+  const paths = [
+    "./packages/i18n/src/translations/localeLoader.ts",
+    "./src/components/dashboard/v2/widgets/chart_legend.tsx",
+    "./docs/2024/meeting-notes/quarterly_planning_review.md",
+    "./src/components/Dashboard/v2/widgets/ChartLegend2Item.tsx",
+    "./src/test/java/com/example/service/UserServiceImpl2Test.java",
+    "./lib/utils/xmlHttpRequest/handlers/v1/parseHTTP2Response.js",
+    "./test/fixtures/i18n/en-US/messages/errors/http404NotFound.json",
+    "./src/encoding/encodeUtf8ToBase64Url/encodeUtf8ToBase64Url.ts",
+    "./src/crypto/sha256Hmac/hmacSha256Digest.ts",
+    "./vendor/github.com/aws/aws-sdk-go-v2/service/s3/api_op_PutObject.go",
+    "./src/checkout/Step3ShippingAddress/Step3ShippingAddress.tsx",
+    "./node_modules/typescript/lib/lib.es2015.collection.d.ts",
+    "./ios/App/Assets.xcassets/AppIcon.appiconset/Icon-App-83.5x83.5@2x.png",
+    "./public/images/logo@2x.png",
+    "./migrations/20240115123456_add_user_profiles_table.sql",
+    "./src/features/oauth2/components/OAuth2CallbackHandler.tsx",
+    "./android/app/src/main/res/drawable-xxhdpi/ic_launcher_foreground.png",
+    "./services/indexer_v3/internal/k8s/deployment_config_v1beta1.yaml",
+    "./src/graphql/__generated__/GetUserProfileV2Query.graphql.ts",
+    "./packages/ui/src/components/Grid/Grid12Column/Grid12ColumnLayout.stories.tsx"
+  ];
+  assert.equal(paths.length, 20);
+  assert.equal((await f.run(paths.join("\n"))).code, 1);
+  assert.deepEqual(sentItems(f.requests).sort(), [...paths].sort());
 });
+
+test("each known secret format is redacted in the request, with the original line printed", async (t) => {
+  const f = await fixture(t);
+  // Assembled at run time so the fake credentials never appear whole in the source
+  const secrets = {
+    "[api key]": ["s" + "k-proj-" + "Q".repeat(24), "s" + "k_live_" + "Z".repeat(24)],
+    "[github token]": ["gh" + "p_" + "A".repeat(36), "gh" + "o_" + "B".repeat(36), "gh" + "s_" + "C".repeat(36), "github" + "_pat_" + "D".repeat(40)],
+    "[gitlab token]": ["gl" + "pat-" + "E".repeat(20)],
+    "[npm token]": ["np" + "m_" + "F".repeat(36)],
+    "[slack token]": ["xo" + "xb-1234-" + "G".repeat(20), "xo" + "xp-5678-" + "H".repeat(20), "xo" + "xa-9012-" + "I".repeat(20)],
+    "[aws key]": ["AK" + "IA" + "J".repeat(16), "AS" + "IA" + "K".repeat(16)],
+    "[google key]": ["AI" + "za" + "L".repeat(35)],
+    "[token]": ["ey" + "JhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJlc2ln"]
+  };
+  const lines = Object.values(secrets).flat().map((secret, i) => `login ${i} ${secret}`);
+  const result = await f.run(lines.join("\n"));
+  assert.equal(result.code, 0);
+  assert.deepEqual(result.stdout.trim().split("\n").sort(), [...lines].sort());
+  const sent = sentItems(f.requests);
+  for (const [replacement, values] of Object.entries(secrets)) {
+    for (const value of values) {
+      assert.ok(f.requests.every((request) => !request.body.includes(value)), replacement);
+      assert.ok(sent.some((item) => item.endsWith(` ${replacement}`)), replacement);
+    }
+  }
+});
+
+test("secret assignments send the key but not the value, quoted or bare", async (t) => {
+  const f = await fixture(t);
+  const cases = [
+    ["login DB_PASSWORD=hunter2hunter2", "login DB_PASSWORD=[redacted]"],
+    ["login passwd: s3cr3t", "login passwd: [redacted]"],
+    ['login secret: "two words here"', 'login secret: "[redacted]"'],
+    ["login key = 'it is \"quoted\"'", "login key = '[redacted]'"],
+    ['login {"token": "abc def", "user": "zed"}', 'login {"token": "[redacted]", "user": "zed"}'],
+    ["login api_key=xyz", "login api_key=[redacted]"]
+  ];
+  assert.equal((await f.run(cases.map(([line]) => line).join("\n"))).code, 0);
+  assert.deepEqual(sentItems(f.requests).sort(), cases.map(([, sent]) => sent).sort());
+});
+
+for (const [name, terminated] of [["a private key piped as lines spanning batches", true], ["a private key cut off before its END line", false]]) {
+  test(`${name} sends none of its body lines`, async (t) => {
+    const f = await fixture(t);
+    const body = Array.from({ length: 30 }, (_, i) => `${String.fromCharCode(65 + (i % 26))}${"MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC".slice(0, 40)}${i}`);
+    const block = ["-----BEGIN RSA PRIVATE KEY-----", ...body, ...(terminated ? ["-----END RSA PRIVATE KEY-----"] : [])];
+    const filler = Array.from({ length: 20 }, (_, i) => `login ${i}`);
+    const result = await f.run([...filler.slice(0, 10), ...block, ...filler.slice(10)].join("\n"));
+    assert.equal(result.code, 0);
+    assert.ok(f.requests.length > 2);
+    const sent = sentItems(f.requests);
+    assert.equal(sent.filter((item) => item === "[private key]").length, terminated ? block.length : block.length + 10);
+    for (const line of block) assert.ok(f.requests.every((request) => !request.body.includes(line)));
+  });
+}
 
 test("optional redaction and the internal core use the same safe cached request path", async (t) => {
   const f = await fixture(t);

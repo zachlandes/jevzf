@@ -129,7 +129,16 @@ Invalid configuration or an explicitly configured but unreadable key fails witho
 Meaning search sends the query and candidate text to TypeSafe's HTTPS API.
 Built-in secret patterns and the configured rules redact the query, each line and question text before every request, including retries.
 A forbidden-pattern check over decoded strings and the serialized body refuses the whole search before any request if a listed forbidden value survives.
-Redaction is not a guarantee that arbitrary private information is detected; maintain the list and choose input deliberately.
+The built-in filter recognises known formats only:
+
+- PEM private-key blocks, including every line of a block piped in as separate lines
+- JWTs
+- Prefixed API keys: `sk-`, `pk-`, `rk-`, Stripe `sk_live_`/`sk_test_`, GitHub `ghp_`/`gho_`/`ghs_`/`ghu_`/`ghr_`/`github_pat_`, GitLab `glpat-`, npm `npm_`, Slack `xoxb-`/`xoxp-`/`xoxa-` and similar, AWS `AKIA`/`ASIA`, Google `AIza`
+- `Bearer` tokens and `Authorization` header values
+- Credentials in URLs and email addresses
+- The value in `key=value` or `key: value` pairs, quoted or bare, whose key names a password, passwd, pwd, secret, token, api key, access key, private key, client secret or key
+
+A secret in no known format that is not on your never-send list is sent as written; add such values to the list, and choose input deliberately.
 Output contains the original local lines, not redacted replacements.
 
 Before sending, stderr shows **about** the estimated cost, the per-search cap, the rolling 24-hour cap and the remaining allowance.
