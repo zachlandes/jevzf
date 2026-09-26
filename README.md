@@ -156,6 +156,7 @@ State files are private to the user.
 Delete only `cache.json` to clear cached rankings; a damaged `cache.json` is discarded and rebuilt with a one-line warning.
 Deleting `spend.json` resets spend accounting, and a damaged `spend.json` refuses searches rather than resetting it.
 A search that is interrupted or killed, for example by Ctrl-C or an fzf reload, frees its lock for the next search automatically and keeps its spend reservation.
+Only a lock left on the same machine is reclaimed automatically; if a state directory shared between machines stays locked, the error names the lock to remove once no search is running.
 
 ## Input and exits
 

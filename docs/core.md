@@ -43,7 +43,7 @@ The SDK's default retry policy applies unchanged, including HTTP 429 and 529 wit
 
 `lib/meaning` contains the inherited redaction, question construction and accounting helpers.
 `lib/state.mjs` serializes searches sharing a state directory and owns durable reservations and the result cache.
-Its lock records the owning process, so a later search reclaims the lock of one that exited without releasing it.
+Its lock records the owning host and process, so a later search on the same host reclaims the lock of one that exited without releasing it, and a search releases only a lock it still owns.
 A future key-fingerprint rate limiter belongs at the same pre-request hook, not in the CLI or fzf binding.
 There is no rate limiter, OpenRouter adapter or separate core package in this release.
 

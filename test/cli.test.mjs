@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, readdirSync, mkdirSync, symlinkSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { MAX_INPUT_TOKENS, usdFor, PINNED_MODEL } from "../lib/meaning/jev.mjs";
@@ -214,12 +214,31 @@ test("a lock whose owner is still running is never taken over", async (t) => {
   const sleeper = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"]);
   t.after(() => sleeper.kill("SIGKILL"));
   mkdirSync(path.join(dir, "search.lock"), { recursive: true });
-  writeFileSync(path.join(dir, "search.lock/owner"), `${sleeper.pid}:held`);
+  writeFileSync(path.join(dir, "search.lock/owner"), JSON.stringify({ host: hostname(), pid: sleeper.pid, token: "held" }));
   await assert.rejects(withState(dir, async () => "ran", { lockTimeoutMs: 300 }), /locked by another running search/);
   const exited = new Promise((resolve) => sleeper.on("exit", resolve));
   sleeper.kill("SIGKILL");
   await exited;
   assert.equal(await withState(dir, async () => "ran", { lockTimeoutMs: 300 }), "ran");
+});
+
+test("a lock owned on another host is never broken, and the timeout says how to recover", async (t) => {
+  const dir = mkdtempSync(path.join(tmpdir(), "jevzf-lock-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const lock = path.join(dir, "search.lock");
+  mkdirSync(lock);
+  const owner = JSON.stringify({ host: `not-${hostname()}`, pid: 2 ** 22 + 1, token: "remote" });
+  writeFileSync(path.join(lock, "owner"), owner);
+  await assert.rejects(withState(dir, async () => "ran", { lockTimeoutMs: 300 }), (error) => error.message.includes(`remove ${lock}`));
+  assert.equal(readFileSync(path.join(lock, "owner"), "utf8"), owner);
+});
+
+test("releasing leaves alone a lock that is no longer ours", async (t) => {
+  const dir = mkdtempSync(path.join(tmpdir(), "jevzf-lock-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const successor = JSON.stringify({ host: `not-${hostname()}`, pid: 1, token: "successor" });
+  await withState(dir, async () => { writeFileSync(path.join(dir, "search.lock/owner"), successor); });
+  assert.equal(readFileSync(path.join(dir, "search.lock/owner"), "utf8"), successor);
 });
 
 test("concurrent searches in one process serialize on the lock", async () => {
@@ -310,6 +329,9 @@ test("readable file paths reach Jev while long base64 and hex secrets are redact
   assert.equal(redactor.redact("blob q8Zt3Kp/Wm4xR7vN2bYc+Hj9LsQe/1fGdA0uTkPiXo5E="), "blob [long token]");
   assert.equal(redactor.redact("sha 3f786850e387550fdab836ed7e6dc881de23001b"), "sha [long token]");
   assert.equal(redactor.redact("key JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"), "key [long token]");
+  const readable = "home/user/projects/service/src/components/dashboard/widgets/charts/legend/items/labels/format/locale/strings/english/common/shared/";
+  assert.equal(redactor.redact(`${readable}3f786850e387550fdab836ed7e6dc881de23001b`), "[long token]");
+  assert.equal(redactor.redact(`${readable}q8Zt3Kp/Wm4xR7vN2bYc+Hj9LsQe/1fGdA0uTkPiXo5E=`), "[long token]");
 });
 
 test("optional redaction and the internal core use the same safe cached request path", async (t) => {
