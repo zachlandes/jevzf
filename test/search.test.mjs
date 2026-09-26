@@ -152,7 +152,8 @@ test("searches queued behind the account's in-flight slot wait without spending 
   const dir = mkdtempSync(path.join(tmpdir(), "jevzf-search-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   // Each answer takes longer than half the attempt timeout, so a request queued behind two others
-  // would time out if its wait for the slot counted against its attempt
+  // would time out if its wait for the slot counted against its attempt; the 400 ms left over keeps
+  // a loaded machine running the whole suite from timing out an answer that was never queued
   let open = 0, peak = 0, served = 0;
   const server = createServer(async (req, res) => {
     open++; peak = Math.max(peak, open);
