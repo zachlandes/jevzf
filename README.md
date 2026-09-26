@@ -133,10 +133,10 @@ The built-in filter recognises known formats only:
 
 - PEM private-key blocks, including every line of a block piped in as separate lines
 - JWTs
-- Prefixed API keys: OpenAI and Anthropic `sk-`, Stripe `sk_live_`/`sk_test_`, GitHub `ghp_`/`gho_`/`ghs_`/`ghu_`/`ghr_`/`github_pat_`, GitLab `glpat-`, npm `npm_`, Slack `xoxb-`/`xoxp-`/`xoxa-` and similar, AWS `AKIA`/`ASIA`, Google `AIza`
+- Prefixed API keys: OpenAI and Anthropic `sk-proj-`, `sk-svcacct-`, `sk-admin-`, `sk-None-` and `sk-ant-`, and any other `sk-` key of 20 or more characters with a capital letter and a digit, Stripe `sk_live_`/`sk_test_`, GitHub `ghp_`/`gho_`/`ghs_`/`ghu_`/`ghr_`/`github_pat_`, GitLab `glpat-`, npm `npm_`, Slack `xoxb-`/`xoxp-`/`xoxa-` and similar, AWS `AKIA`/`ASIA`, Google `AIza`
 - `Bearer` tokens and `Authorization` header values
 - Credentials in URLs and email addresses
-- The value in `key=value`, `key: value`, `key => value` or `key == value` pairs, quoted or bare, whose key names a password, passwd, pwd, secret, token, api key, access key, private key, client secret or key
+- The value in pairs whose key names a password, passwd, pwd, secret, token, api key, access key, private key, client secret or key: a quoted literal after `=`, `==`, `===`, `!=`, `!==`, `:=`, `:` or `=>`; a bare value up to whitespace, `;`, `,` or `)` after an `=` form; and after `:` or `=>`, a bare value only when it is 12 or more characters with a digit, so type annotations such as `token: string` pass
 
 A secret in no known format that is not on your never-send list is sent as written; add such values to the list, and choose input deliberately.
 Output contains the original local lines, not redacted replacements.

@@ -348,58 +348,120 @@ test("readable file paths, including digit-bearing camelCase names and @2x asset
     "./packages/ui/src/components/Grid/Grid12Column/Grid12ColumnLayout.stories.tsx"
   ];
   assert.equal(paths.length, 20);
-  const kebab = ["./src/tasks/pk-generate-primary-key-migrations.ts", "./scripts/sk-learn-model-v2-evaluation.py", "./docs/rk-2024-release-notes-draft.md", "./src/sk-integration-test-fixtures/setup.ts"];
+  const kebab = ["./src/tasks/pk-generate-primary-key-migrations.ts", "./scripts/sk-learn-model-v2-evaluation.py", "./docs/rk-2024-release-notes-draft.md", "./src/sk-integration-test-fixtures/setup.ts", "./public/icons/icon@2x.PNG", "./public/images/hero@2x.avif"];
   assert.equal((await f.run([...paths, ...kebab].join("\n"))).code, 1);
   assert.deepEqual(sentItems(f.requests).sort(), [...paths, ...kebab].sort());
 });
 
-test("each known secret format is redacted in the request, with the original line printed", async (t) => {
-  const f = await fixture(t);
-  // Assembled at run time so the fake credentials never appear whole in the source
-  const secrets = {
-    "[api key]": ["s" + "k-proj-" + "Q1".repeat(12), "s" + "k-ant-api03-" + "R2".repeat(20), "s" + "k_live_" + "Z".repeat(24)],
-    "[github token]": ["gh" + "p_" + "A".repeat(36), "gh" + "o_" + "B".repeat(36), "gh" + "s_" + "C".repeat(36), "github" + "_pat_" + "D".repeat(40)],
-    "[gitlab token]": ["gl" + "pat-" + "E".repeat(20)],
-    "[npm token]": ["np" + "m_" + "F".repeat(36)],
-    "[slack token]": ["xo" + "xb-1234-" + "G".repeat(20), "xo" + "xp-5678-" + "H".repeat(20), "xo" + "xa-9012-" + "I".repeat(20)],
-    "[aws key]": ["AK" + "IA" + "J".repeat(16), "AS" + "IA" + "K".repeat(16)],
-    "[google key]": ["AI" + "za" + "L".repeat(35)],
-    "[token]": ["ey" + "JhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJlc2ln"],
-    "[email]": ["alice@" + "163.com", "someone@" + "example.com"]
+// Deterministic so a failure names the same generated key on every run
+function seeded(seed) {
+  return () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
-  const lines = Object.values(secrets).flat().map((secret, i) => `login ${i} ${secret}`);
+}
+
+test("ten generated keys of every known format, in each provider's real shape, are all redacted", async (t) => {
+  const f = await fixture(t);
+  const random = seeded(20260925);
+  const from = (alphabet) => (n) => Array.from({ length: n }, () => alphabet[Math.floor(random() * alphabet.length)]).join("");
+  const upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  const alnum = from(upper + upper.toLowerCase() + "0123456789");
+  const b64url = from(upper + upper.toLowerCase() + "0123456789-_");
+  const digits = from("0123456789");
+  const upperDigits = from(upper + "0123456789");
+  const hex = from("0123456789abcdef");
+  // Prefixes are split so the fake credentials never appear whole in the source
+  const formats = [
+    ["[api key]", () => "s" + "k-proj-" + b64url(156)],
+    ["[api key]", () => "s" + "k-svcacct-" + b64url(156)],
+    ["[api key]", () => "s" + "k-admin-" + b64url(156)],
+    ["[api key]", () => "s" + "k-None-" + b64url(48)],
+    ["[api key]", () => "s" + "k-ant-api03-" + b64url(93) + "AA"],
+    ["[api key]", () => "s" + "k-ant-admin01-" + b64url(93) + "AA"],
+    ["[api key]", () => "s" + "k-" + alnum(46) + "Q7"],
+    ["[api key]", () => "s" + "k_live_" + alnum(99)],
+    ["[api key]", () => "r" + "k_test_" + alnum(99)],
+    ["[github token]", () => "gh" + "p_" + alnum(36)],
+    ["[github token]", () => "gh" + "o_" + alnum(36)],
+    ["[github token]", () => "gh" + "s_" + alnum(36)],
+    ["[github token]", () => "github" + "_pat_" + alnum(22) + "_" + alnum(59)],
+    ["[gitlab token]", () => "gl" + "pat-" + b64url(20)],
+    ["[npm token]", () => "np" + "m_" + alnum(36)],
+    ["[slack token]", () => "xo" + "xb-" + digits(12) + "-" + digits(13) + "-" + alnum(24)],
+    ["[slack token]", () => "xo" + "xp-" + digits(12) + "-" + digits(12) + "-" + digits(13) + "-" + hex(32)],
+    ["[slack token]", () => "xo" + "xa-2-" + digits(12) + "-" + alnum(24)],
+    ["[aws key]", () => "AK" + "IA" + upperDigits(16)],
+    ["[aws key]", () => "AS" + "IA" + upperDigits(16)],
+    ["[google key]", () => "AI" + "za" + b64url(35)],
+    ["[token]", () => "ey" + "J" + b64url(33) + "." + b64url(60) + "." + b64url(43)],
+    ["[email]", () => alnum(8).toLowerCase() + "@" + digits(3) + ".com"]
+  ];
+  const cases = formats.flatMap(([replacement, make]) => Array.from({ length: 10 }, () => [make(), replacement]));
+  assert.ok(cases.some(([key]) => key.startsWith("s" + "k-proj-") && /-.*-/.test(key.slice(8))));
+  const lines = cases.map(([key], i) => `login ${i} ${key}`);
   const result = await f.run(lines.join("\n"));
   assert.equal(result.code, 0);
   assert.deepEqual(result.stdout.trim().split("\n").sort(), [...lines].sort());
-  const sent = sentItems(f.requests);
-  for (const [replacement, values] of Object.entries(secrets)) {
-    for (const value of values) {
-      assert.ok(f.requests.every((request) => !request.body.includes(value)), replacement);
-      assert.ok(sent.some((item) => item.endsWith(` ${replacement}`)), replacement);
-    }
-  }
+  assert.deepEqual(sentItems(f.requests).sort(), cases.map(([, replacement], i) => `login ${i} ${replacement}`).sort());
+  for (const [key] of cases) assert.ok(f.requests.every((request) => !request.body.includes(key)), key);
 });
 
-test("secret assignments send the key but not the value, quoted or bare", async (t) => {
+test("code lines keep everything but a secret's value", async (t) => {
   const f = await fixture(t);
-  const cases = [
-    ["login DB_PASSWORD=hunter2hunter2", "login DB_PASSWORD=[redacted]"],
-    ["login passwd: s3cr3t", "login passwd: [redacted]"],
-    ['login secret: "two words here"', 'login secret: "[redacted]"'],
-    ["login key = 'it is \"quoted\"'", "login key = '[redacted]'"],
-    ['login {"token": "abc def", "user": "zed"}', 'login {"token": "[redacted]", "user": "zed"}'],
-    ["login api_key=xyz", "login api_key=[redacted]"],
-    ["login 'password' => 'hunter2secret',", "login 'password' => '[redacted]',"],
-    ['login :password => "rubysecret"', 'login :password => "[redacted]"'],
-    ['login if password == "comparedsecret"', 'login if password == "[redacted]"'],
-    ["login password: correct horse battery staple", "login password: [redacted]"],
-    ["login DB_PASSWORD=abc;def'ghi", "login DB_PASSWORD=[redacted]"],
-    ["login password=[bracketed]secret", "login password=[redacted]"],
-    ['login password="unterminated secret', 'login password="[redacted]"'],
-    ['login "password": "ab\\"cdsecret"', 'login "password": "[redacted]"']
+  const unchanged = [
+    "function login(token: string, user: User) {",
+    '{ key: item.id, label: "Save" }',
+    "items.map((key) => cache.get(key));",
+    "items.map(key => key.id)",
+    "export interface Session { token: string; expiresAt: Date }",
+    "const { password, ...rest } = user;",
+    'if (!token) throw new Error("missing token");',
+    "def verify(password: str, hashed: bytes) -> bool:",
+    "    token: Optional[str] = None",
+    "api_key: ${{ secrets.OPENAI_API_KEY }}",
+    "  password: ${DB_PASSWORD}",
+    "type Props = { apiKey: string; onChange: (key: string) => void };",
+    "const secretName = process.env.SECRET_NAME;",
+    'logger.info("token refreshed", { userId });',
+    "password_reset_url: /account/reset",
+    'sortKey: "createdAt",',
+    "const tokenCount = tokens.length;",
+    "- name: Rotate API key",
+    "if (password.length < 12) return false;",
+    "  key: user-profile-panel",
+    '@app.post("/token")',
+    'return jwt.encode(payload, key, algorithm="HS256")',
+    "password_hash = bcrypt.hash(password, rounds)",
+    "for key, value in settings.items():",
+    "  - key: ENVIRONMENT"
   ];
-  assert.equal((await f.run(cases.map(([line]) => line).join("\n"))).code, 0);
-  assert.deepEqual(sentItems(f.requests).sort(), cases.map(([, sent]) => sent).sort());
+  const secret = [
+    ['const password = "hunter2secret";', 'const password = "[redacted]";'],
+    ["DB_PASSWORD=hunter2hunter2", "DB_PASSWORD=[redacted]"],
+    ["password: hunter2secret99", "password: [redacted]"],
+    ['secret: "two words here"', 'secret: "[redacted]"'],
+    ['{"token": "abc def", "user": "zed"}', '{"token": "[redacted]", "user": "zed"}'],
+    ["api_key=xyz", "api_key=[redacted]"],
+    ["'password' => 'hunter2secret',", "'password' => '[redacted]',"],
+    [':password => "rubysecret"', ':password => "[redacted]"'],
+    ['if (password === "hunter2secret") {', 'if (password === "[redacted]") {'],
+    ['if (password !== "x") {', 'if (password !== "[redacted]") {'],
+    ['password != "x"', 'password != "[redacted]"'],
+    ["password = `hunter2 secret` + suffix", "password = `[redacted]` + suffix"],
+    ["DB_PASSWORD=abc;def'ghi", "DB_PASSWORD=[redacted];def'ghi"],
+    ["password=[bracketed]secret", "password=[redacted]"],
+    ['password="unterminated secret', 'password="[redacted]"'],
+    ['"password": "ab\\"cdsecret"', '"password": "[redacted]"'],
+    ["{ key: 'settings', label: t('nav.settings') }", "{ key: '[redacted]', label: t('nav.settings') }"],
+    ["password = get_password()", "password = [redacted])"],
+    ["export OPENAI_API_KEY=" + "s" + "k-proj-" + "a1B2-c3D4_e5F6-g7H8i9J0", "export OPENAI_API_KEY=[redacted]"]
+  ];
+  assert.ok(unchanged.length + secret.length >= 30);
+  await f.run([...unchanged, ...secret.map(([line]) => line)].join("\n"));
+  assert.deepEqual(sentItems(f.requests).sort(), [...unchanged, ...secret.map(([, sent]) => sent)].sort());
 });
 
 for (const [name, kind, terminated] of [
