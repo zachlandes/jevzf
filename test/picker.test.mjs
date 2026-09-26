@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import { PINNED_MODEL } from "../lib/meaning/jev.mjs";
 import { act, exactTerms, fitWidth, glyphs, header, summary } from "../lib/picker/view.mjs";
 import { handleKey, saveState, loadState, inputFile, QUEUED_SHELL } from "../lib/picker/keys.mjs";
-import { findFzf } from "../lib/picker/run.mjs";
+import { findFzf, fzfEnv } from "../lib/picker/run.mjs";
 
 const cli = fileURLToPath(new URL("../bin/jevzf.mjs", import.meta.url));
 const driver = fileURLToPath(new URL("./pty-driver.py", import.meta.url));
@@ -105,6 +105,18 @@ test("without a key, meaning mode says what to export and enter sends nothing", 
   assert.match(enter, /^change-header\(/);
   assert.equal(loadState(f.dir).phase, "ask");
   assert.ok(!existsSync(path.join(f.dir, "queued")));
+});
+
+test("the header takes the terminal's own foreground, ahead of fzf defaults the user set", (t) => {
+  const dir = scratch(t);
+  assert.equal(fzfEnv({}, dir).FZF_DEFAULT_OPTS, "--color=header:-1");
+  assert.equal(fzfEnv({ FZF_DEFAULT_OPTS: "--color=header:red" }, dir).FZF_DEFAULT_OPTS, "--color=header:-1 --color=header:red");
+  const theirs = path.join(dir, "theirs");
+  writeFileSync(theirs, "--color=light\n");
+  const env = fzfEnv({ FZF_DEFAULT_OPTS_FILE: theirs, FZF_DEFAULT_OPTS: "--border" }, dir);
+  assert.equal(readFileSync(env.FZF_DEFAULT_OPTS_FILE, "utf8"), "--color=header:-1\n--color=light\n");
+  assert.equal(env.FZF_DEFAULT_OPTS, "--border");
+  assert.deepEqual(fzfEnv({ FZF_DEFAULT_OPTS_FILE: path.join(dir, "missing") }, dir), { FZF_DEFAULT_OPTS_FILE: path.join(dir, "missing") });
 });
 
 test("the picker refuses fzf older than 0.66 or missing, naming the fix", (t) => {
