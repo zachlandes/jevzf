@@ -39,10 +39,11 @@ The official `@typesafe-ai/sdk` owns request serialization, timeout handling, re
 Its key, base URL, model and logging settings are all explicit; SDK environment defaults cannot select another credential or destination, or enable body logging.
 The core's transport hook applies the never-send check and durably reserves the attempt immediately before each fetch, including SDK retries.
 HTTP redirects are returned as errors without following them.
-HTTP 429 and 529 are excluded from retries and expose the SDK-parsed server delay in the safe error message.
+The SDK's default retry policy applies unchanged, including HTTP 429 and 529 with Retry-After; each retry is reserved like the first attempt.
 
 `lib/meaning` contains the inherited redaction, question construction and accounting helpers.
 `lib/state.mjs` serializes searches sharing a state directory and owns durable reservations and the result cache.
+Its lock records the owning process, so a later search reclaims the lock of one that exited without releasing it.
 A future key-fingerprint rate limiter belongs at the same pre-request hook, not in the CLI or fzf binding.
 There is no rate limiter, OpenRouter adapter or separate core package in this release.
 

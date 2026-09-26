@@ -8,11 +8,23 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { MAX_INPUT_TOKENS, usdFor, PINNED_MODEL } from "../lib/meaning/jev.mjs";
 import { createSearch } from "../lib/core.mjs";
+import { createRedactor } from "../lib/meaning/redaction.mjs";
+import { withState } from "../lib/state.mjs";
 
 const cli = process.env.JEVZF_TEST_CLI ? path.resolve(process.env.JEVZF_TEST_CLI) : fileURLToPath(new URL("../bin/jevzf.mjs", import.meta.url));
 const fzfVersion = spawnSync("fzf", ["--version"], { encoding: "utf8" }).stdout?.match(/^(\d+)\.(\d+)/);
 const supportedFzf = fzfVersion && (Number(fzfVersion[1]) > 0 || Number(fzfVersion[2]) >= 65);
 const reservation = usdFor(MAX_INPUT_TOKENS);
+
+function answer(res, parsed, tokens = 100) {
+  res.setHeader("content-type", "application/json");
+  res.end(JSON.stringify({
+    model: PINNED_MODEL,
+    answers: Object.fromEntries(Object.entries(parsed.state.items).map(([id, line]) => [id, { type: "noul", noul: line.includes("login") ? 0.97 : line.includes("reset") ? 0.8 : 0.1 }])),
+    usage: { input_tokens: tokens, output_tokens: 20 }
+  }));
+  return true;
+}
 
 async function fixture(t, respond) {
   const dir = mkdtempSync(path.join(tmpdir(), "jevzf-test-"));
@@ -23,12 +35,7 @@ async function fixture(t, respond) {
     const parsed = JSON.parse(body);
     requests.push({ body, parsed, authorization: req.headers.authorization });
     if (respond && await respond(req, res, parsed, requests.length)) return;
-    res.setHeader("content-type", "application/json");
-    res.end(JSON.stringify({
-      model: PINNED_MODEL,
-      answers: Object.fromEntries(Object.entries(parsed.state.items).map(([id, line]) => [id, { type: "noul", noul: line.includes("login") ? 0.97 : line.includes("reset") ? 0.8 : 0.1 }])),
-      usage: { input_tokens: 100, output_tokens: 20 }
-    }));
+    answer(res, parsed);
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const key = path.join(dir, "key");
@@ -137,13 +144,23 @@ test("per-search cap rejects unaffordable reservations before sending", async (t
   const result = await f.run("login");
   assert.equal(result.code, 2);
   assert.match(result.stderr, /search cap.*rolling 24h cap/);
-  assert.match(result.stderr, /remaining cap/);
+  assert.match(result.stderr, /exceeds the available.*raise search_cap_usd/);
   assert.equal(f.requests.length, 0);
 });
 
-test("daily cap persists across CLI processes; cached results remain free", async (t) => {
+test("a search the caps cannot finish is refused before any request", async (t) => {
   const f = await fixture(t);
-  writeFileSync(f.config, JSON.stringify({ daily_cap_usd: reservation + usdFor(100) / 2 }));
+  writeFileSync(f.config, JSON.stringify({ search_cap_usd: reservation + usdFor(500) }));
+  const result = await f.run(Array.from({ length: 100 }, (_, i) => `login ${i}`).join("\n"));
+  assert.equal(result.code, 2);
+  assert.match(result.stderr, /estimated cost plus one request reservation.*raise search_cap_usd.*nothing sent/);
+  assert.equal(f.requests.length, 0);
+  assert.ok(!readdirSync(path.join(f.dir, "state")).includes("spend.json"));
+});
+
+test("daily cap persists across CLI processes; cached results remain free", async (t) => {
+  const f = await fixture(t, (_req, res, parsed) => answer(res, parsed, 5000));
+  writeFileSync(f.config, JSON.stringify({ daily_cap_usd: reservation + usdFor(2000) }));
   assert.equal((await f.run("login")).code, 0);
   assert.equal((await f.run("login", "different query")).code, 2);
   assert.equal((await f.run("login")).code, 0);
@@ -160,7 +177,7 @@ test("concurrent identical searches serialize and the second uses cache", async 
 
 test("uncertain failures consume their reservation and retries cannot exceed the cap", async (t) => {
   const f = await fixture(t, (_req, res) => { res.writeHead(503); res.end("private provider error"); return true; });
-  writeFileSync(f.config, JSON.stringify({ search_cap_usd: reservation, daily_cap_usd: reservation }));
+  writeFileSync(f.config, JSON.stringify({ search_cap_usd: reservation + usdFor(1000), daily_cap_usd: reservation + usdFor(1000) }));
   const result = await f.run("login");
   assert.equal(result.code, 2);
   assert.equal(f.requests.length, 1);
@@ -170,11 +187,11 @@ test("uncertain failures consume their reservation and retries cannot exceed the
   assert.equal(f.requests.length, 1);
 });
 
-test("a crash after sending keeps its reservation across restart", async (t) => {
+test("a killed search keeps its reservation and its lock does not block the next search", async (t) => {
   let arrived;
   const received = new Promise((resolve) => { arrived = resolve; });
   const f = await fixture(t, () => { arrived(); return true; });
-  writeFileSync(f.config, JSON.stringify({ daily_cap_usd: reservation }));
+  writeFileSync(f.config, JSON.stringify({ daily_cap_usd: reservation + usdFor(1000) }));
   const child = spawn(process.execPath, [cli, "query"], { env: f.env, stdio: ["pipe", "ignore", "ignore"] });
   child.stdin.end("login\n");
   await received;
@@ -182,15 +199,47 @@ test("a crash after sending keeps its reservation across restart", async (t) => 
   child.kill("SIGKILL");
   await closed;
   assert.equal(JSON.parse(readFileSync(path.join(f.dir, "state/spend.json")))[0].usd, reservation);
-  rmSync(path.join(f.dir, "state/search.lock"), { recursive: true });
+  const began = Date.now();
   const restarted = await f.run("login");
+  assert.ok(Date.now() - began < 10000);
   assert.equal(restarted.code, 2);
+  assert.match(restarted.stderr, /raise daily_cap_usd/);
   assert.equal(f.requests.length, 1);
+  assert.deepEqual(readdirSync(path.join(f.dir, "state")).sort(), ["spend.json"]);
+});
+
+test("a lock whose owner is still running is never taken over", async (t) => {
+  const dir = mkdtempSync(path.join(tmpdir(), "jevzf-lock-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const sleeper = spawn(process.execPath, ["-e", "setTimeout(() => {}, 60000)"]);
+  t.after(() => sleeper.kill("SIGKILL"));
+  mkdirSync(path.join(dir, "search.lock"), { recursive: true });
+  writeFileSync(path.join(dir, "search.lock/owner"), `${sleeper.pid}:held`);
+  await assert.rejects(withState(dir, async () => "ran", { lockTimeoutMs: 300 }), /locked by another running search/);
+  const exited = new Promise((resolve) => sleeper.on("exit", resolve));
+  sleeper.kill("SIGKILL");
+  await exited;
+  assert.equal(await withState(dir, async () => "ran", { lockTimeoutMs: 300 }), "ran");
+});
+
+test("concurrent searches in one process serialize on the lock", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "jevzf-lock-"));
+  let inside = 0;
+  let overlapped = false;
+  const job = async () => {
+    inside += 1;
+    overlapped ||= inside > 1;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    inside -= 1;
+  };
+  await Promise.all([withState(dir, job), withState(dir, job), withState(dir, job)]);
+  assert.equal(overlapped, false);
+  rmSync(dir, { recursive: true, force: true });
 });
 
 test("budget exhaustion mid-search prints no partial ranking", async (t) => {
-  const f = await fixture(t);
-  writeFileSync(f.config, JSON.stringify({ search_cap_usd: reservation }));
+  const f = await fixture(t, (_req, res, parsed) => answer(res, parsed, MAX_INPUT_TOKENS));
+  writeFileSync(f.config, JSON.stringify({ search_cap_usd: reservation * 1.5 }));
   const result = await f.run(Array.from({ length: 17 }, (_, i) => `login ${i}`).join("\n"));
   assert.equal(result.code, 2);
   assert.equal(result.stdout, "");
@@ -206,6 +255,18 @@ test("corrupt accounting fails closed instead of resetting the daily spend", asy
   assert.equal(f.requests.length, 0);
 });
 
+test("a corrupt result cache is discarded and rebuilt instead of refusing searches", async (t) => {
+  const f = await fixture(t);
+  mkdirSync(path.join(f.dir, "state"));
+  writeFileSync(path.join(f.dir, "state/cache.json"), "not json");
+  const result = await f.run("login");
+  assert.equal(result.code, 0);
+  assert.equal(result.stdout, "login\n");
+  assert.equal(result.stderr.split("\n").filter((line) => line.includes("result cache")).length, 1);
+  assert.match((await f.run("login")).stderr, /cache hit/);
+  assert.equal(f.requests.length, 1);
+});
+
 test("config-relative paths work and zero caps permit an existing cache hit", async (t) => {
   const f = await fixture(t);
   const config = { key_file: "./key", redaction_file: "./redaction.json" };
@@ -219,15 +280,37 @@ test("config-relative paths work and zero caps permit an existing cache hit", as
 });
 
 for (const status of [429, 529]) {
-  test(`HTTP ${status} stops without retrying and reports the SDK-parsed Retry-After`, async (t) => {
-    const f = await fixture(t, (_req, res) => { res.writeHead(status, { "Retry-After": "15" }); res.end("private error body"); return true; });
+  test(`HTTP ${status} follows the SDK retry policy, honouring Retry-After`, async (t) => {
+    const f = await fixture(t, (_req, res, _body, n) => {
+      if (n === 1) { res.writeHead(status, { "Retry-After": "1" }); res.end("private error body"); return true; }
+    });
+    const began = Date.now();
+    const result = await f.run("login");
+    assert.equal(result.code, 0);
+    assert.equal(result.stdout, "login\n");
+    assert.ok(Date.now() - began >= 1000);
+    assert.equal(f.requests.length, 2);
+  });
+
+  test(`HTTP ${status} on every attempt fails after the SDK's retries without leaking the body`, async (t) => {
+    const f = await fixture(t, (_req, res) => { res.writeHead(status, { "Retry-After": "0" }); res.end("private error body"); return true; });
     const result = await f.run("login");
     assert.equal(result.code, 2);
-    assert.match(result.stderr, /stopped; retry-after: 15 seconds/);
+    assert.match(result.stderr, new RegExp(`HTTP ${status}`));
     assert.ok(!result.stderr.includes("private error body"));
-    assert.equal(f.requests.length, 1);
+    assert.equal(f.requests.length, 3);
   });
 }
+
+test("readable file paths reach Jev while long base64 and hex secrets are redacted", () => {
+  const redactor = createRedactor();
+  for (const line of ["./packages/i18n/src/translations/localeLoader.ts", "./src/components/dashboard/v2/widgets/chart_legend.tsx", "./docs/2024/meeting-notes/quarterly_planning_review.md"]) {
+    assert.equal(redactor.redact(line), line);
+  }
+  assert.equal(redactor.redact("blob q8Zt3Kp/Wm4xR7vN2bYc+Hj9LsQe/1fGdA0uTkPiXo5E="), "blob [long token]");
+  assert.equal(redactor.redact("sha 3f786850e387550fdab836ed7e6dc881de23001b"), "sha [long token]");
+  assert.equal(redactor.redact("key JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"), "key [long token]");
+});
 
 test("optional redaction and the internal core use the same safe cached request path", async (t) => {
   const f = await fixture(t);

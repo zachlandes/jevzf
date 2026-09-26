@@ -1,8 +1,15 @@
 # jevzf
 
 Pipe text in, describe what you want, get matching lines back in meaning order.
-Use it on its own or with your existing fzf.
+It works two ways, both supported: as a plain pipe filter, and inside your existing stock fzf through a key binding.
 This project is unofficial, not affiliated with TypeSafe.
+
+```sh
+find . -type f | jevzf 'configuration files'
+```
+
+In fzf, a Ctrl-R binding ranks the candidates by the meaning of the current query; [With stock fzf](#with-stock-fzf) has the recipe.
+That binding is the current way to use jevzf with fzf; a built-in fzf picker is coming.
 
 ## Try it
 
@@ -25,6 +32,36 @@ To try this checkout before publication:
 ```sh
 npm pack
 npm install -g ./jevzf-0.1.0.tgz
+```
+
+## With stock fzf
+
+This is the supported fzf integration today.
+This POSIX-shell example saves the candidates once, keeps fzf's normal selection controls, and makes Ctrl-R request a meaning search for the current query.
+There is no fzf fork, patch, wrapper mode, or request on each keystroke.
+
+```sh
+(
+  export JEVZF_INPUT="$(mktemp)"
+  trap 'rm -f "$JEVZF_INPUT"' EXIT
+  find . -type f > "$JEVZF_INPUT"
+  fzf --disabled --no-sort --query='configuration files' \
+    --header='Type a meaning query; Ctrl-R searches; Enter selects' \
+    --bind='ctrl-r:reload-sync(jevzf -- {q} < "$JEVZF_INPUT" || true)' \
+    < "$JEVZF_INPUT"
+)
+```
+
+`{q}` is fzf's shell-quoted query placeholder, not a string to interpolate yourself.
+`--disabled` keeps fzf from hiding meaning matches with a second literal filter; `--no-sort` preserves jevzf's order.
+The saved input makes every search cover the original candidates, not only the last result set.
+The binding accepts an empty result without fzf's command-failed warning; jevzf still writes errors and spend notices to stderr.
+Without a key, Ctrl-R reloads the unchanged candidates.
+
+For a fixed query, pipe mode needs no binding:
+
+```sh
+find . -type f | jevzf 'configuration files' | fzf --no-sort
 ```
 
 ## Enable meaning search
@@ -87,35 +124,6 @@ Relative config paths resolve beside the config file; relative environment paths
 `JEVZF_SEARCH_CAP_USD` and `JEVZF_DAILY_CAP_USD` override the spend ceilings; defaults are $0.02 per search and $0.20 per rolling 24 hours without any configuration.
 Invalid configuration or an explicitly configured but unreadable key fails without sending anything.
 
-## With stock fzf
-
-This POSIX-shell example saves the candidates once, keeps fzf's normal selection controls, and makes Ctrl-R request a meaning search for the current query.
-There is no fzf fork, patch, wrapper mode, or request on each keystroke.
-
-```sh
-(
-  export JEVZF_INPUT="$(mktemp)"
-  trap 'rm -f "$JEVZF_INPUT"' EXIT
-  find . -type f > "$JEVZF_INPUT"
-  fzf --disabled --no-sort --query='configuration files' \
-    --header='Type a meaning query; Ctrl-R searches; Enter selects' \
-    --bind='ctrl-r:reload-sync(jevzf -- {q} < "$JEVZF_INPUT" || true)' \
-    < "$JEVZF_INPUT"
-)
-```
-
-`{q}` is fzf's shell-quoted query placeholder, not a string to interpolate yourself.
-`--disabled` keeps fzf from hiding meaning matches with a second literal filter; `--no-sort` preserves jevzf's order.
-The saved input makes every search cover the original candidates, not only the last result set.
-The binding accepts an empty result without fzf's command-failed warning; jevzf still writes errors and spend notices to stderr.
-Without a key, Ctrl-R reloads the unchanged candidates.
-
-For a fixed query, no binding is needed:
-
-```sh
-find . -type f | jevzf 'configuration files' | fzf --no-sort
-```
-
 ## Privacy, caps and caching
 
 Meaning search sends the query and candidate text to TypeSafe's HTTPS API.
@@ -127,12 +135,13 @@ Output contains the original local lines, not redacted replacements.
 Before sending, stderr shows **about** the estimated cost, the per-search cap, the rolling 24-hour cap and the remaining allowance.
 The estimate uses a measured bytes-to-tokens ratio and is not a ceiling.
 The caps are ceilings: each attempt reserves the pinned model's full documented request budget of 65,536 input tokens before sending, then replaces that reservation with reported usage.
-At the documented price of $0.042 per million input tokens, a reservation is $0.002752512, so a smaller remaining allowance refuses another request even when the estimate is lower.
+At the documented price of $0.042 per million input tokens, a reservation is $0.002752512.
+A search is refused before any request when its estimate plus one reservation exceeds the remaining allowance, and the error names the cap to raise.
 The model is pinned to `jev-1.13.0`; [pricing and limits](https://docs.typesafe.ai/models) were checked on 2026-09-25.
 A zero cap disables paid searches but still permits cache hits.
-Uncertain network failures keep the reservation; the official TypeSafe SDK gives eligible failures at most two retries, each separately checked and reserved.
-HTTP 429 and 529 stop immediately without a retry and report the server's `Retry-After` delay when supplied.
-A cross-process rate limiter is not included in this release.
+Retries use the official TypeSafe SDK's default policy: HTTP 408, 429 and 5xx and network failures are retried at most twice, honouring `Retry-After` up to 60 seconds.
+Every attempt, including each retry, is separately checked against the caps and reserved, so retries can never pass a cap; uncertain failures keep their reservation.
+Rate-limit and retry behaviour is not configurable in this release; a configurable rate limiter is planned.
 No partial ranking is printed after an error or exhausted cap, and incomplete searches are not cached.
 
 State lives in `$XDG_STATE_HOME/jevzf` (default `~/.local/state/jevzf`); `JEVZF_STATE_DIR` overrides it.
@@ -144,17 +153,16 @@ The last 100 complete searches are cached on the query plus the set of original 
 Repeating a search against the same set, even in a different order, makes no second call.
 The cache stores a hash and scores, not the query or lines; hashes are not encryption.
 State files are private to the user.
-Delete only `cache.json` to clear cached rankings; deleting `spend.json` resets spend accounting.
-
-An interrupted process may leave `search.lock` behind.
-Stop all jevzf processes using that state directory before removing the empty lock directory with `rmdir`.
-Keep `spend.json`: it retains any request that may have been billed.
+Delete only `cache.json` to clear cached rankings; a damaged `cache.json` is discarded and rebuilt with a one-line warning.
+Deleting `spend.json` resets spend accounting, and a damaged `spend.json` refuses searches rather than resetting it.
+A search that is interrupted or killed, for example by Ctrl-C or an fzf reload, frees its lock for the next search automatically and keeps its spend reservation.
 
 ## Input and exits
 
 - UTF-8, newline-delimited text; CRLF is accepted, NUL input is rejected in meaning mode.
 - Meaning mode skips blank lines and removes duplicate lines; no-key passthrough preserves input bytes.
 - Limits: 10 MiB input, 5,000 distinct nonblank lines, 24,000 UTF-8 bytes per line, and a 400-character query.
+  These are input ceilings, not a promise that a maximum-size input fits the default spend caps; a search the caps cannot cover is refused before sending.
 - Results pass a Noul relevance threshold of 0.58 and are sorted by probability; ties sort by the original line text.
   This inherited starting threshold has not been calibrated for every kind of input.
 - No automatic “nearest” fallback: if nothing passes, stdout is empty.
@@ -178,6 +186,8 @@ Tests use a loopback stand-in, never a real Jev call.
 For local tests only, `JEVZF_JEV_ENDPOINT` may select an HTTP URL on numeric loopback (`127.0.0.1` or `::1`); remote overrides and redirects are refused.
 Never combine that test override with a real credential.
 CI runs on Node.js 20, 22 and 24.
+
+See also: [jgrep](https://github.com/keltokhy/jgrep) for grep-style filtering by meaning without fzf.
 
 Apache-2.0; see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 The meaning client, batching and redaction were adapted from herdr-find's meaning module, with question lineage through Dewey and Needle.
