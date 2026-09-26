@@ -1,134 +1,140 @@
 # jevzf
 
-Pipe text in, describe what you want, get matching lines back in meaning order.
-It works two ways, both supported: as a plain pipe filter, and inside your existing stock fzf through a key binding.
-This project is unofficial, not affiliated with TypeSafe.
+Jev-powered search for fzf.
+Unofficial; not affiliated with TypeSafe.
 
-```sh
-find . -type f | jevzf 'configuration files'
-```
-
-In fzf, a Ctrl-R binding ranks the candidates by the meaning of the current query; [With stock fzf](#with-stock-fzf) has the recipe.
-That binding is the current way to use jevzf with fzf; a built-in fzf picker is coming.
+Pipe lines in, say what you mean, and get the matching lines back, best first, byte for byte as they came in.
+[Jev](https://docs.typesafe.ai/) judges each line against your words, so "when did we change the retry logic" can find `a3f1c2e back off harder on 529s` without sharing a word with it.
+It works on its own like `grep` or `fzf --filter`, and inside stock fzf through one binding.
 
 ## Try it
 
-Requires Node.js 20 or newer.
-The fzf example supports stock fzf 0.65 or newer; fzf is optional for the CLI itself.
-
-```sh
-# After the first npm release is published
-npm install -g jevzf
-printf '%s\n' 'reset password' 'garden tools' 'login service' | jevzf 'signing in'
-```
-
-Without a configured key, this prints the input unchanged and writes a first-run notice to stderr.
-It sends nothing and does not look for credentials.
-With meaning search configured below, it prints only matching lines, best-first.
-
-This is a release candidate; it has not been published to npm yet.
-To try this checkout before publication:
+Requires Node.js 22 or newer.
+jevzf is not on npm yet; to try this checkout:
 
 ```sh
 npm pack
 npm install -g ./jevzf-0.1.0.tgz
+export TYPESAFE_API_KEY=...                        # console.typesafe.ai/settings/keys
+git log --oneline | jevzf "when did we change the retry logic"
+```
+
+`TYPESAFE_API_KEY` is the only setup meaning search needs.
+The built-in secret filter, spend ceilings, rate limiter and answer cache are on without any configuration.
+
+Without a key, jevzf sends nothing and exits 2:
+
+```text
+jevzf: meaning search needs a TypeSafe API key; nothing was sent.
+  export TYPESAFE_API_KEY=...   (get one at console.typesafe.ai/settings/keys)
+  To see what this search would cost first: jevzf --estimate 'when did we change the retry logic'
+```
+
+`--estimate` needs no key and sends nothing:
+
+```sh
+git log --oneline | jevzf --estimate "when did we change the retry logic"
 ```
 
 ## With stock fzf
 
-This is the supported fzf integration today.
-This POSIX-shell example saves the candidates once, keeps fzf's normal selection controls, and makes Ctrl-R request a meaning search for the current query.
-There is no fzf fork, patch, wrapper mode, or request on each keystroke.
+fzf reads its input once, so this binding works for any source you can run again, such as `git log`, `rg` or `FZF_DEFAULT_COMMAND`.
+Ctrl-Space searches by meaning for what you have typed; Ctrl-F goes back to fzf's own fuzzy search.
 
 ```sh
-(
-  export JEVZF_INPUT="$(mktemp)"
-  trap 'rm -f "$JEVZF_INPUT"' EXIT
-  find . -type f > "$JEVZF_INPUT"
-  fzf --disabled --no-sort --query='configuration files' \
-    --header='Type a meaning query; Ctrl-R searches; Enter selects' \
-    --bind='ctrl-r:reload-sync(jevzf -- {q} < "$JEVZF_INPUT" || true)' \
-    < "$JEVZF_INPUT"
-)
+SRC='git log --oneline'
+eval "$SRC" | fzf \
+    --bind "ctrl-space:reload($SRC | jevzf --closest 3 -- {q})+disable-search+change-prompt(meaning> )" \
+    --bind "ctrl-f:reload($SRC)+enable-search+change-prompt(> )"
 ```
 
-`{q}` is fzf's shell-quoted query placeholder, not a string to interpolate yourself.
-`--disabled` keeps fzf from hiding meaning matches with a second literal filter; `--no-sort` preserves jevzf's order.
-The saved input makes every search cover the original candidates, not only the last result set.
-The binding accepts an empty result without fzf's command-failed warning; jevzf still writes errors and spend notices to stderr.
-Without a key, Ctrl-R reloads the unchanged candidates.
+The search runs once per key press, never while you type, because every search is a paid request over the whole input.
+Pressing Ctrl-Space again with the same words over the same lines is free: answers are cached per line.
+The binding needs stock fzf with `disable-search`; there is no fork, patch or plugin.
 
-For a fixed query, pipe mode needs no binding:
+## Options
 
-```sh
-find . -type f | jevzf 'configuration files' | fzf --no-sort
+```text
+cmd | jevzf [options] QUERY...
 ```
 
-## Enable meaning search
+- `--scores` prefixes each match with its probability and a tab, such as `0.83<TAB>`.
+- `--floor P` sets the minimum probability for a match; the default is 0.58, the threshold Needle uses.
+- `--closest N` prints the N best lines when none pass the floor; the default is 0.
+- `--max-cost USD` lowers this search's ceiling; it never raises it.
+- `--no-cache` neither reads nor writes cached answers.
+- `--read0` reads and writes NUL-separated records, as `fzf --read0` and `xargs -0` do.
+- `--estimate` counts lines and how many are already cached, estimates the cost of the rest, names the ceilings and says how many lines the secret filter would change.
+- `--help` and `--version` need no key.
+- `--` ends the options, for a query that begins with a dash.
 
-Create a TypeSafe API key through [TypeSafe](https://console.typesafe.ai/), save it in a private file, and explicitly select that file.
-Do not put the key value in a command argument.
-jevzf does not read `TYPESAFE_API_KEY`, discover other tools' keys, or use a default key file.
+Exit codes follow grep and fzf: 0 at least one match, 1 nothing matched, 2 an error such as a bad flag, no key or every request failing, and 130 on Ctrl-C (143 on SIGTERM, 129 on SIGHUP).
+A search stopped part-way by a ceiling prints what it found in the lines it judged and exits 0 or 1 by that, and stderr names the ceiling and how many lines went unjudged.
+A search whose ceiling cannot cover even one request sends nothing and exits 2, rather than looking like a search that found nothing.
 
-```sh
-export JEVZF_KEY_FILE="$HOME/.config/jevzf/key"
-chmod 600 "$JEVZF_KEY_FILE"
-printf '%s\n' 'reset password' 'garden tools' 'login service' | jevzf 'signing in'
+Lines are judged in input order, so when a ceiling stops a search it is the last lines that go unjudged; pipe through `tac` to judge the newest first.
+ANSI colour codes are removed from what is sent and kept in what is printed.
+Blank lines are skipped, and identical lines share one judgment.
+Ties keep input order.
+Input is limited to 10 MiB, 5,000 distinct lines and 24,000 bytes per line, with a query of up to 400 characters.
+
+## Cost and ceilings
+
+When stderr is a terminal, jevzf prints a cost line before sending and a summary after:
+
+```text
+jevzf: about USD 0.012 · never more than USD 0.02 per search · USD 0.18 left today
+jevzf: 14 found in 1,204 lines · 1.9 s · USD 0.0118
 ```
 
-That's all the required setup for meaning search.
-Built-in secret and email redaction, spend caps and caching are on by default.
-The private-file permission checks target macOS and Linux.
+The first figure is an estimate and is never called a ceiling.
+The ceilings are USD 0.02 per search and USD 0.20 per UTC day by default.
+Every attempt, retries included, reserves the pinned model's full 65,536-token request limit against both ceilings before it is sent, and gives back the difference once the response reports its real usage.
+At USD 0.042 per million input tokens, each reservation is about USD 0.0028, so a search never passes its ceiling even when a response goes missing.
+An attempt that may have been billed without an answer stays booked at its reservation.
+The model is pinned to `jev-1.13.0`; [its price and limits](https://docs.typesafe.ai/models.md) were checked on 2026-09-25.
 
-### Optional never-send list
+The daily ceiling holds across processes: a search writes a hold for its ceiling before sending, so two searches at once cannot both spend the same allowance.
+Before sending, stderr warns when a search may need more than its ceiling or what is left today, since each request first reserves its worst case.
+The cost estimate and this warning count only lines not already cached, so repeating a search warns about nothing.
+The daily ceiling covers the key: every tool that uses the same key and config counts against it together.
+A search interrupted by Ctrl-C, ended by fzf's SIGTERM or cut off by a closed terminal closes its hold at what it may have spent; after kill -9 the hold is released after ten minutes, and anything it may have spent stays counted.
+None of these leaves a lock behind: local state is locked only for the moment of each file update, never across a request, and a lock whose owner process is gone is reclaimed by the next search.
+These are local ceilings, not account-wide billing controls.
 
-For private values the built-in patterns cannot know, supply a redaction list.
-The format is the same as herdr-find's: `rules` contains `[class, pattern, replacement]` arrays, and `forbidden` lists patterns that must not survive.
-For example:
+## Rate limits
+
+TypeSafe publishes 1,200 requests a minute and 250,000 tokens a second for `jev-1.13.0`.
+jevzf keeps to 80% of both, counted across every process on the machine that uses the same key, so tools sharing a key stay under the limits together.
+When TypeSafe answers 429 or 529, every process on that key pauses for the server's `retry-after`, and the official SDK retries the request.
+One person's searches should never reach these limits; they matter when several tools share one key.
+
+## Configuration
+
+No configuration is needed.
+To change the defaults, create `~/.config/jevzf/config.json` (or `$XDG_CONFIG_HOME/jevzf/config.json`) with any of these lines:
 
 ```json
 {
-  "rules": [["person", "(?i)Example Person", "[person]"]],
-  "forbidden": ["(?i)Example Person"]
+  "key_file": "~/.config/jevzf/key",
+  "never_send_file": "~/.config/jevzf/never-send.json",
+  "spend": { "per_search_usd": 0.02, "per_day_usd": 0.2 },
+  "limits": { "requests_per_minute": 1200, "tokens_per_second": 250000, "share": 0.8 }
 }
 ```
 
-With no list configured, only the built-in rules apply.
-Patterns use JavaScript regular expressions, with Python-style leading `(?i)`, `(?m)`, `(?s)` flags and `\1` / `\g<name>` replacements supported.
-This is not a complete Python regex engine.
-JSON backslashes need escaping, for example `"\\bExample\\b"`.
+`limits` describes your TypeSafe account, and `share` is the part of it jevzf may use.
+For one-off runs and CI, `JEVZF_PER_SEARCH_USD`, `JEVZF_PER_DAY_USD`, `JEVZF_RPM` and `JEVZF_TPS` override the file, and `JEVZF_CONFIG` points at another file.
+Relative paths in the file resolve beside it, and `~/` works.
 
-```sh
-# After saving the optional list
-export JEVZF_REDACTION_FILE="$HOME/.config/jevzf/redaction.json"
-chmod 600 "$JEVZF_REDACTION_FILE"
-```
+The key comes from `TYPESAFE_API_KEY` first, then `key_file`, which must be mode 600; no other location is read.
+Keep the key out of command arguments.
 
-### Optional configuration
+## Privacy
 
-No configuration file is required.
-Alternatively, put the paths and caps in `$XDG_CONFIG_HOME/jevzf/config.json` (default `~/.config/jevzf/config.json`):
-
-```json
-{
-  "key_file": "./key",
-  "redaction_file": "./redaction.json",
-  "search_cap_usd": 0.02,
-  "daily_cap_usd": 0.2
-}
-```
-
-Relative config paths resolve beside the config file; relative environment paths resolve from the working directory.
-`~/` paths are supported.
-`JEVZF_CONFIG` selects another config file; the file-path environment variables override config.
-`JEVZF_SEARCH_CAP_USD` and `JEVZF_DAILY_CAP_USD` override the spend ceilings; defaults are $0.02 per search and $0.20 per rolling 24 hours without any configuration.
-Invalid configuration or an explicitly configured but unreadable key fails without sending anything.
-
-## Privacy, caps and caching
-
-Meaning search sends the query and candidate text to TypeSafe's HTTPS API.
-Built-in secret patterns and the configured rules redact the query, each line and question text before every request, including retries.
-A forbidden-pattern check over decoded strings and the serialized body refuses the whole search before any request if a listed forbidden value survives.
+Meaning search sends the query and the lines to TypeSafe's HTTPS API.
+Before anything is sent, a built-in filter replaces known secret formats in the query and every line.
+The final check runs on the exact request body of every attempt, retries included, and refuses to send one in which a known secret survives.
 The built-in filter recognises known formats only:
 
 - PEM and PGP private-key blocks, including every line of a block piped in as separate lines; each line is judged by the key text at its end, so `rg -n` or `rg -C` paths (spaces included), `git diff` markers and `cat -n` numbers are kept and the key text is redacted; a block starts at a line whose last text is the BEGIN marker, so a multi-line quoted value such as a `.env` `PRIVATE_KEY="` or a triple-quoted or template string is covered while a one-line string constant holding only the marker is not, and runs to a line holding the END marker, whatever closes the value after it (such as `` `; `` or `""")`), or to the first line that is not key body when the key was cut off; a key held on one line with escaped `\n` newlines is redacted from BEGIN through END
@@ -158,51 +164,30 @@ Known limits:
 - An apostrophe earlier on the line, as in prose like "don't", can shift where a value ends, so part of it is sent.
 - On the over-redaction side, `rg -n` output from an extensionless file named after a secret word loses its content, for example `bin/token:12:#!/bin/sh`.
 
-Output contains the original local lines, not redacted replacements.
+For private values no pattern can know, such as names, customer ids or internal hosts, add a never-send list and point `never_send_file` or `JEVZF_NEVER_SEND_FILE` at it (mode 600):
 
-Before sending, stderr shows **about** the estimated cost, the per-search cap, the rolling 24-hour cap and the remaining allowance.
-The estimate uses a measured bytes-to-tokens ratio and is not a ceiling.
-The caps are ceilings: each attempt reserves the pinned model's full documented request budget of 65,536 input tokens before sending, then replaces that reservation with reported usage.
-At the documented price of $0.042 per million input tokens, a reservation is $0.002752512.
-A search is refused before any request when its estimate plus one reservation exceeds the remaining allowance, and the error names the cap to raise.
-The model is pinned to `jev-1.13.0`; [pricing and limits](https://docs.typesafe.ai/models) were checked on 2026-09-25.
-A zero cap disables paid searches but still permits cache hits.
-Retries use the official TypeSafe SDK's default policy: HTTP 408, 429 and 5xx and network failures are retried at most twice, honouring `Retry-After` up to 60 seconds.
-Every attempt, including each retry, is separately checked against the caps and reserved, so retries can never pass a cap; uncertain failures keep their reservation.
-Rate-limit and retry behaviour is not configurable in this release; a configurable rate limiter is planned.
-No partial ranking is printed after an error or exhausted cap, and incomplete searches are not cached.
+```json
+{
+  "rules": [["person", "(?i)Example Person", "[person]"]],
+  "forbidden": ["(?i)Example Person"]
+}
+```
 
-State lives in `$XDG_STATE_HOME/jevzf` (default `~/.local/state/jevzf`); `JEVZF_STATE_DIR` overrides it.
-Spend reservations are persisted before requests and shared by CLI processes using that state directory.
-Concurrent searches serialize, so they cannot each spend the same daily allowance.
-These are local limits, not account-wide TypeSafe billing controls; another state directory, machine or application has separate accounting.
+`rules` holds `[class, pattern, replacement]` entries, and `forbidden` lists patterns that must never reach a request.
+Patterns are JavaScript regular expressions that also accept a leading `(?i)`, `(?m)` or `(?s)` and `\1` or `\g<name>` replacements; backslashes need escaping in JSON.
+No filter can promise to find every private detail, so choose what you pipe in.
 
-The last 100 complete searches are cached on the query plus the set of original nonblank lines, redaction rules, model, prompt revision and endpoint.
-Repeating a search against the same set, even in a different order, makes no second call.
-The cache stores a hash and scores, not the query or lines; hashes are not encryption.
-State files are private to the user.
-Delete only `cache.json` to clear cached rankings; a damaged `cache.json` is discarded and rebuilt with a one-line warning.
-Deleting `spend.json` resets spend accounting, and a damaged `spend.json` refuses searches rather than resetting it.
-A search that is interrupted or killed, for example by Ctrl-C or an fzf reload, frees its lock for the next search automatically and keeps its spend reservation.
-Only a lock left on the same machine is reclaimed automatically; if a state directory shared between machines stays locked, the error names the lock to remove once no search is running.
+The answer cache in `~/.cache/jevzf/answers` stores keyed hashes of lines and their probabilities for 30 days, never the query or the text, and stays under 50 MiB.
+Spend and rate records in `~/.local/state/jevzf` hold times, amounts and a fingerprint of the key, never the key or any text.
+Either directory can be deleted while no search is running; deleting `spend` also forgets today's spending.
 
-## Input and exits
+## Library
 
-- UTF-8, newline-delimited text; CRLF is accepted, NUL input is rejected in meaning mode.
-- Meaning mode skips blank lines and removes duplicate lines; no-key passthrough preserves input bytes.
-- Limits: 10 MiB input, 5,000 distinct nonblank lines, 24,000 UTF-8 bytes per line, and a 400-character query.
-  These are input ceilings, not a promise that a maximum-size input fits the default spend caps; a search the caps cannot cover is refused before sending.
-- Results pass a Noul relevance threshold of 0.58 and are sorted by probability; ties sort by the original line text.
-  This inherited starting threshold has not been calibrated for every kind of input.
-- No automatic “nearest” fallback: if nothing passes, stdout is empty.
-- Exit 0: matches or no-key passthrough; exit 1: no meaning matches; exit 2: invalid input, configuration, service, redaction or budget error.
-- `--help` and `--version` need no key; `jevzf -- '-query'` accepts a query beginning with a dash.
+The CLI is a thin layer over `jevzf/core`, which owns every call to Jev: the key, the secret filter, the ceilings, the rate limiter and the cache.
+Other tools can use it; see [the core library](docs/core.md).
+Its interface may change before 1.0.
 
 ## Development
-
-The one runtime dependency is the official `@typesafe-ai/sdk`, pinned to 0.6.0, which has no runtime dependencies of its own.
-There are no install hooks.
-The core is internal to this repository, not a separate package; see [the internal API](https://github.com/zachlandes/jevzf/blob/main/docs/core.md).
 
 ```sh
 npm ci --ignore-scripts
@@ -211,10 +196,10 @@ npm run lint
 npm pack --dry-run
 ```
 
-Tests use a loopback stand-in, never a real Jev call.
-For local tests only, `JEVZF_JEV_ENDPOINT` may select an HTTP URL on numeric loopback (`127.0.0.1` or `::1`); remote overrides and redirects are refused.
-Never combine that test override with a real credential.
-CI runs on Node.js 20, 22 and 24.
+The one runtime dependency is TypeSafe's official SDK, `@typesafe-ai/sdk`, pinned to 0.6.0, which has no dependencies or install scripts of its own.
+Tests use a loopback stand-in for TypeSafe and never a real key.
+For tests only, `JEVZF_JEV_ENDPOINT` may point at an HTTP URL on `127.0.0.1` or `::1`; any other host is refused, and redirects are never followed.
+CI runs on Node.js 22, 24 and 26.
 
 ## Releasing
 
@@ -224,7 +209,12 @@ release-please keeps a standing release pull request that bumps `package.json` a
 Merging that pull request tags the release, and the same workflow publishes it to npm with [trusted publishing](https://docs.npmjs.com/trusted-publishers) and provenance.
 No npm token is stored anywhere; npm trusts `.github/workflows/release-please.yml` in this repository, so renaming that file breaks publishing.
 
-See also: [jgrep](https://github.com/keltokhy/jgrep) for grep-style filtering by meaning without fzf.
+## See also
+
+[jgrep](https://github.com/keltokhy/jgrep) filters piped text by meaning with Jev, for anyone who wants a grep-focused tool.
+
+## Licence and credits
 
 Apache-2.0; see [LICENSE](LICENSE) and [NOTICE](NOTICE).
-The meaning client, batching and redaction were adapted from herdr-find's meaning module, with question lineage through Dewey and Needle.
+jevzf is built for [fzf](https://github.com/junegunn/fzf) by Junegunn Choi.
+Its meaning questions and 0.58 threshold come from Needle, by way of Dewey and herdr-find.

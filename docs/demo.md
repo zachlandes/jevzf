@@ -1,5 +1,7 @@
 # First-release checks
 
+An executable [showboat](https://github.com/simonw/showboat) demo of the filter, [demo/cli.md](demo/cli.md), shows the first run, the secret filter, the per-line cache, interrupts and spend ceilings against a loopback stand-in; `cd docs/demo && showboat verify cli.md` re-runs every block and checks its output.
+
 ## No-key first run
 
 Install the packed release into a throwaway prefix, not the user's global installation.
@@ -16,17 +18,18 @@ printf 'garden tools\nlogin service\n' |
   .tmp/install/bin/jevzf 'signing in'
 ```
 
-Captured stdout:
+Captured stderr, with nothing on stdout, exit status 2, and no state or cache directory created:
 
 ```text
-garden tools
-login service
+jevzf: meaning search needs a TypeSafe API key; nothing was sent.
+  export TYPESAFE_API_KEY=...   (get one at console.typesafe.ai/settings/keys)
+  To see what this search would cost first: jevzf --estimate 'signing in'
 ```
 
-Captured stderr:
+The same input with `--estimate` needs no key, sends nothing and exits 0:
 
 ```text
-jevzf: meaning search is off; set JEVZF_KEY_FILE to enable it; passing input through (no network)
+2 lines · 0 cached · about USD 0.000018 · never more than USD 0.02 per search · USD 0.20 per day · 0 lines changed by the never-send check
 ```
 
 ## Offline behavior and stock fzf
@@ -38,17 +41,19 @@ JEVZF_TEST_CLI="$PWD/.tmp/install/bin/jevzf" npm test
 ```
 
 The CLI tests spawn real processes against a numeric-loopback HTTP stand-in.
-They observe request bodies and authorization, original-line output, persisted reservations, cache hits, retry behavior, concurrent processes and recovery after killing a process during a request.
+They observe request bodies and authorization, original-line output, persisted reservations, cache hits, retry behavior, concurrent processes, recovery after killing a process during a request, and Ctrl-C both while reading stdin and during a request.
 They also prove that configured SDK environment variables cannot redirect the credential or turn on body logging.
+The core tests run the shared limiter in three separate processes, reclaim locks left by dead or stopped owners, compact the ledger and cache, and cancel a search mid-request.
 
-When stock fzf 0.65 or newer and Python 3 are present, a PTY test presses Ctrl-R using the README binding, waits for its reload, and presses Enter.
-Its initial first candidate is `garden tools`; after the mocked meaning response, the selected output is `login service`.
+When stock fzf 0.65 or newer and Python 3 are present, a PTY test runs the README's binding recipe, presses Ctrl-Space, waits for its reload, and presses Enter.
+After the mocked meaning response, the selected output is `login service`, the second input line.
 The query includes shell punctuation to exercise fzf's quoted `{q}` placeholder.
 This test passed locally with fzf 0.73.1; it skips rather than pretends to test an absent or unsupported fzf.
 
 ## Live Jev check
 
-The authorized synthetic check ran on 2026-09-26 with the pinned `jev-1.13.0` through the official SDK and the internal core.
+The authorized synthetic check ran on 2026-09-26 against the first release candidate, before the core library described in [the core library](core.md), with the pinned `jev-1.13.0` through the official SDK.
+No live check has been run against this core yet.
 It sent one request over these made-up lines, with a $0.003 search ceiling and a $0.009 rolling-day ceiling:
 
 ```text
