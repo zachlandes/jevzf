@@ -28,16 +28,17 @@ import { openJev, PINNED_MODEL } from "decision-gate";
 
 const questions = {
   fit: { type: "noul", instructions: "Does this posting fit the student's skills and goals?" },
-  eligible: { type: "noul", instructions: "Can the student apply (location, work authorization, graduation date)?" }
+  eligible: { type: "noul", instructions: "Can the student apply, given the location and their graduation date?" }
 };
 
 const jev = openJev({ tool: "job-screen" });
-// Rewording a question changes the scope, so old answers are not reused for it
+// Rewording any question changes the scope, so no old answers are reused
 const cache = jev.cache({ scope: { questions } });
+// Each run is capped at spend.per_run_usd (USD 0.02 by default); open a run per batch for a long job
 const run = jev.run();
 
 async function screen(posting, student) {
-  // Emails and known secret formats are replaced before anything is sent or cached
+  // Emails, known secret formats and any "authorization: <value>" text are replaced before anything is sent or cached
   const state = { posting: jev.redactor.redact(posting), student: jev.redactor.redact(student) };
   const key = (name) => `${name}\n${JSON.stringify(state)}`;
   const result = Object.fromEntries(Object.keys(questions).map((name) => [name, cache.get(key(name))]));
@@ -85,6 +86,7 @@ It also does not merge two identical asks started at the same moment, so check t
 Every tool on the machine that uses the same key shares one daily ceiling, `spend.per_day_usd` (USD 0.20 by default, reset at UTC midnight), and each run has its own ceiling, `spend.per_run_usd` (USD 0.02 by default).
 A request that does not fit under them is not sent, and the ask fails with a `SpendCapError`.
 At the price 0.1.0 records for the pinned model, USD 0.042 per million input tokens with output free, the default daily ceiling covers about 4.7 million input tokens; raise it in the config for more.
+The default run ceiling covers about 476,000, so a long screening job opens a run per batch or raises `per_run_usd` in the config too.
 
 **Several questions over one state go in one call.**
 A Jev request carries one `state` and any number of named `questions`, and the gate sends it as one request: one rate-limit slot, and the state's input tokens paid once however many questions it asks.
@@ -92,7 +94,8 @@ When the state is most of the request, as a job posting usually is, three questi
 
 **Nothing on the never-send list leaves the machine.**
 Every request is checked, including each retry, and one containing a forbidden value is refused with a `RedactionError` rather than rewritten.
-The built-in rules cover known secret formats and email addresses; redact text with `jev.redactor.redact` before putting it in a request.
+The built-in rules cover known secret formats and email addresses, and they also rewrite the value after any `authorization:` or `authorization=`, so a line such as "work authorization: US citizen" loses its first word.
+Redact text with `jev.redactor.redact` before putting it in a request.
 
 ## Routes other than TypeSafe
 
@@ -178,7 +181,7 @@ Raw requests are checked, not silently rewritten: a forbidden value in any seria
 Callers that send user text redact it first with `jev.redactor.redact`, and `jev.redactor.check(body)` runs the same final check on a serialized request before anything is queued.
 `jev.redactor.clean(text)` is true when one piece of text would pass that check as a string in a request: nothing forbidden survives in it and the built-in rules would leave it unchanged.
 A caller batching many texts into one request can use it on each redacted text to hold back only the ones the check would refuse, instead of losing the whole request.
-Built-in rules cover known secret formats and email addresses, not arbitrary long hashes or random-looking strings, so file paths reach the service unchanged.
+Built-in rules cover known secret formats, email addresses and any `authorization: <value>` text, not arbitrary long hashes or random-looking strings, so file paths reach the service unchanged.
 `privateKeyLines(lines)` maps each line of a private key piped in as separate lines to its redacted form, since such a key is only recognisable across lines.
 A private optional never-send file adds user rules and forbidden patterns:
 
