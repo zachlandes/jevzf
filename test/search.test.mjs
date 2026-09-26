@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, readFileSync, readdirSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PINNED_MODEL, MAX_INPUT_TOKENS, usdFor } from "decision-gate";
@@ -111,4 +111,37 @@ test("batches run concurrently, and a full ceiling waits for in-flight attempts 
   assert.equal(peak, 2);
   assert.equal(narrow.spend, 4 * usdFor(100));
   assert.equal(await tight.jev.remaining(), 0.2 - 4 * usdFor(100));
+});
+
+test("jevzf spends on its own key file ahead of TYPESAFE_API_KEY, then on decision-gate's defaults", async (t) => {
+  const dir = mkdtempSync(path.join(tmpdir(), "jevzf-key-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const write = (file, text) => { mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, text, { mode: 0o600 }); };
+  write(path.join(dir, "jevzf/config.json"), JSON.stringify({ key_file: "jevzf-key" }));
+  write(path.join(dir, "jevzf/jevzf-key"), "jevzf-fixture\n");
+  write(path.join(dir, "decision-gate/config.json"), JSON.stringify({ key_file: "shared-key" }));
+  write(path.join(dir, "decision-gate/shared-key"), "shared-fixture\n");
+  write(path.join(dir, "other/config.json"), JSON.stringify({ key_file: "../other-key" }));
+  write(path.join(dir, "other-key"), "override-fixture\n");
+  const base = { XDG_CONFIG_HOME: dir, XDG_STATE_HOME: dir, XDG_CACHE_HOME: dir };
+  const sentWith = async (env) => {
+    let authorization;
+    const jev = openJev({ env, maxRetries: 0, fetch: async (_url, init) => {
+      authorization = init.headers.Authorization ?? init.headers.authorization;
+      const request = JSON.parse(init.body);
+      return new Response(JSON.stringify({ model: PINNED_MODEL, answers: Object.fromEntries(Object.keys(request.questions).map((id) => [id, { type: "noul", noul: 0.9 }])), usage: { input_tokens: 100 } }));
+    } });
+    await searchByMeaning({ jev, query: "search", items: ["alpha"], noCache: true });
+    return authorization;
+  };
+  assert.equal(await sentWith(base), "Bearer jevzf-fixture");
+  assert.equal(await sentWith({ ...base, JEVZF_CONFIG: path.join(dir, "other/config.json") }), "Bearer override-fixture");
+  // Another tool's exported key must not take over jevzf's spend
+  assert.equal(await sentWith({ ...base, TYPESAFE_API_KEY: "env-fixture" }), "Bearer jevzf-fixture");
+  rmSync(path.join(dir, "jevzf/config.json"));
+  assert.equal(await sentWith({ ...base, TYPESAFE_API_KEY: "env-fixture" }), "Bearer env-fixture");
+  assert.equal(await sentWith(base), "Bearer shared-fixture");
+  assert.throws(() => openJev({ env: { ...base, JEVZF_CONFIG: path.join(dir, "missing.json") } }), /cannot read jevzf config/);
+  write(path.join(dir, "jevzf/config.json"), JSON.stringify({ key_file: "jevzf-key", spend: { per_day_usd: 1 } }));
+  assert.throws(() => openJev({ env: base }), /holds only key_file/);
 });
