@@ -4,7 +4,7 @@ The one gate Node tools pass through to spend a user's key on a decision model.
 It decides whether a request may be sent (key, never-send check, spend ceilings, rate limit), sends it through the provider's own SDK, and records what it cost.
 Unofficial; not affiliated with TypeSafe.
 
-Tools that share a key on one machine share its daily ceiling and its rate window, because every tool reads and writes the same local state.
+Tools that share a key on one machine share its daily ceiling, and every key on one TypeSafe account shares that account's rate window, because every tool reads and writes the same local state.
 Nothing here calls a generative model, stores request text or runs at development time; those belong to the tools themselves.
 The interface is 0.x: a breaking change raises the minor version.
 
@@ -29,11 +29,12 @@ try {
 
 ## Opening the gate
 
-`openJev({ tool, key, neverSend, spend, env, notice, fetch })` opens a caller.
+`openJev({ tool, key, account, neverSend, spend, env, notice, fetch })` opens a caller.
 `tool` is required: a short identifier such as `herdr-find` that tags the caller's spend records, not a different service.
 `notice` receives one-line warnings and defaults to a no-op.
 `spend` accepts `perRunUsd` and `perDayUsd`, defaulting to the config's USD 0.02 and USD 0.20.
 The config's daily ceiling covers the key across every tool that uses it; a caller's `perDayUsd` can only lower what that tool spends, never add to the key's.
+`account` names the TypeSafe account the key belongs to, for a tool whose key is not on the config's account (see "Accounts and rate limits").
 `fetch` replaces the network for tests; the destination is still checked.
 
 The returned object holds `status()`, `config`, `redactor`, `remaining()`, `cache()` and `run()`.
@@ -56,21 +57,46 @@ No file is required.
 
 ```json
 {
+  "account": "default",
   "key_file": "~/.config/decision-gate/key",
   "never_send_file": "~/.config/decision-gate/never-send.json",
   "spend": { "per_run_usd": 0.02, "per_day_usd": 0.2 },
   "limits": {
     "requests_per_minute": 1200,
     "tokens_per_second": 250000,
-    "share": 0.8
+    "share": 0.8,
+    "in_flight": 4,
+    "large_in_flight": 1,
+    "large_request_tokens": 32000
   }
 }
 ```
 
-`DECISION_GATE_PER_RUN_USD`, `DECISION_GATE_PER_DAY_USD`, `DECISION_GATE_RPM`, `DECISION_GATE_TPS` and `DECISION_GATE_NEVER_SEND_FILE` override the corresponding config values.
+`DECISION_GATE_ACCOUNT`, `DECISION_GATE_PER_RUN_USD`, `DECISION_GATE_PER_DAY_USD`, `DECISION_GATE_RPM`, `DECISION_GATE_TPS`, `DECISION_GATE_IN_FLIGHT` and `DECISION_GATE_NEVER_SEND_FILE` override the corresponding config values.
 Relative paths in the file resolve beside it, and `~/` works.
-The effective rate limits multiply the configured account limits by `share`.
 Every tool reads the same limits section and daily ceiling; an explicit caller per-run ceiling remains the caller's own.
+
+## Accounts and rate limits
+
+TypeSafe counts rate limits per account, not per key.
+A second key on the same account adds no capacity: measured on one account, small requests got about 47,000-56,000 tokens a second on one key and 46,000 combined on two, and large ones about 121,000 on one and 127,000 split across two.
+A key per tool is for separate spend records and revocation, not for throughput.
+
+A key does not reveal its account, so the gate assumes every key on this machine belongs to one account, named `default`.
+Every key on an account shares one rate window, one 429 pause and one set of in-flight requests, across every tool and process on the machine.
+Set `account` in the config or `DECISION_GATE_ACCOUNT` to name it, and pass `openJev({ account })` for a key that belongs to a different account, so it gets a window of its own.
+The caller's `account` wins over the environment, which wins over the config.
+An account name is a short identifier: letters, digits, `.`, `_` and `-`.
+
+`limits` describes the account's ceiling:
+
+- `requests_per_minute` and `tokens_per_second` are TypeSafe's published limits for the pinned model; the gate keeps to `share` of both.
+- `in_flight` is how many requests the account may have open at once, 4 by default.
+- `large_in_flight` is how many of those may be large, 1 by default; a request is large when it is estimated at `large_request_tokens` (32,000) or more.
+
+The defaults are measured: requests of about 6,100 tokens finished fastest with two to four in flight, and requests of about 50,000 tokens finished as fast one at a time as two or four at once.
+A tool that sends requests in parallel should size its pool from `jev.config.limits.inFlight` instead of keeping its own setting, since the gate holds any extra requests until a slot frees.
+`jev.config.account` names the account the caller's requests count against.
 
 ## Runs
 
@@ -84,6 +110,8 @@ await run.close();
 `capUsd` can lower the per-run ceiling, never raise it.
 Raw requests are checked, not silently rewritten: a forbidden value in any serialized field or its decoded JSON form prevents the request.
 Callers that send user text redact it first with `jev.redactor.redact`, and `jev.redactor.check(body)` runs the same final check on a serialized request before anything is queued.
+`jev.redactor.clean(text)` is true when one piece of text would pass that check as a string in a request: nothing forbidden survives in it and the built-in rules would leave it unchanged.
+A caller batching many texts into one request can use it on each redacted text to hold back only the ones the check would refuse, instead of losing the whole request.
 Built-in rules cover known secret formats and email addresses, not arbitrary long hashes or random-looking strings, so file paths reach the service unchanged.
 `privateKeyLines(lines)` maps each line of a private key piped in as separate lines to its redacted form, since such a key is only recognisable across lines.
 A private optional never-send file adds user rules and forbidden patterns:
@@ -126,8 +154,9 @@ A cache that cannot be read or written warns once through `notice` and continues
 The official `@typesafe-ai/sdk` owns serialization, timeouts, retries and Retry-After parsing.
 The gate explicitly sets its key, destination, model and logging level, so SDK environment defaults cannot redirect or log requests.
 Its fetch wrapper checks the exact body, reserves the attempt against the run's ceiling, takes a shared rate slot and persists the reservation before every network attempt, including retries.
+The rate slot is held until the attempt's answer arrives.
 Redirects are never followed.
-A 429 or 529 records a shared pause using the server's Retry-After delay, or a short fallback when absent, before SDK retry handling continues.
+A 429 or 529 records a pause for the whole account using the server's Retry-After delay, or a short fallback when absent, before SDK retry handling continues.
 For tests only, `DECISION_GATE_ENDPOINT` may point at an HTTP URL on `127.0.0.1` or `::1`; any other host is refused.
 
 State lives under `$XDG_STATE_HOME/decision-gate`, normally `~/.local/state/decision-gate`, and the cache under `$XDG_CACHE_HOME/decision-gate/answers`:
@@ -136,12 +165,14 @@ State lives under `$XDG_STATE_HOME/decision-gate`, normally `~/.local/state/deci
 | --- | --- |
 | `cache-key` | The answer cache's private hash key |
 | `spend/typesafe/<key-fingerprint>.jsonl` | The cost ledger: tool, time, hold and cost of each run, never text |
-| `limits/typesafe/<key-fingerprint>.json` | The shared rate window and pause |
+| `limits/typesafe/accounts/<account>.json` | The account's shared rate window, pause and in-flight requests |
 
 The fingerprint is the first 16 SHA-256 hex characters, never the key.
+Earlier versions kept a rate window per key fingerprint in `limits/typesafe/<key-fingerprint>.json`; those files hold at most a minute of history, so the gate deletes them when it first opens an account's window.
 Rate requests use a rolling minute window; tokens use a rolling second window, counting each request at its size in bytes, up to the request limit.
 Measured usage is about a quarter token per byte, so this overcounts; the spend ceiling, not the limiter, is the guaranteed bound.
 The defaults enforce 960 requests a minute and 200,000 reserved tokens a second.
+An in-flight request whose process stopped without releasing it is dropped once that process is gone, or after a minute.
 If the limiter's directory cannot be written, it warns once per limiter and uses in-process limits.
 This does not disable the daily ceiling: unwritable spend state still refuses paid requests.
 

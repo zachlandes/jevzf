@@ -56,14 +56,16 @@ function createResponder({ key, budget, assertSafe, limiter, book = async () => 
       retry: { maxRetries, respectRetryAfter: true },
       fetch: async (_url, init) => {
         await local(() => assertSafe(init.body));
+        let slot;
         const ticket = await local(async () => {
           const held = await budget.acquire(MAX_INPUT_TOKENS, init.signal);
           try {
+            const bytes = Buffer.byteLength(init.body);
             // Usage measures about a quarter token per request byte, so counting bytes overcounts
             // without throttling like the full-context spend reservation would
-            await limiter?.take(Math.min(Buffer.byteLength(init.body), MAX_INPUT_TOKENS), init.signal);
+            slot = await limiter?.take(Math.min(bytes, MAX_INPUT_TOKENS), { estimated: bytes * ESTIMATE_TOKENS_PER_BYTE, signal: init.signal });
             await book();
-          } catch (error) { held.release(); throw error; }
+          } catch (error) { held.release(); await slot?.release(); throw error; }
           return held;
         });
         let response;
@@ -71,25 +73,29 @@ function createResponder({ key, budget, assertSafe, limiter, book = async () => 
           // Surface redirects as non-retryable HTTP errors without following them
           response = await fetchImpl(endpoint, { ...init, redirect: "manual" });
         } catch (error) {
+          await slot?.release();
           await local(async () => { ticket.settle(null); await book(); });
           throw error;
         }
         await local(async () => {
-          if (!response.ok) {
-            if (response.status >= 500 || response.status === 408) ticket.settle(null);
-            else ticket.release();
-          } else {
-            let json;
-            try { json = await response.clone().json(); }
-            catch { /* An unreadable response may still have been billed */ }
-            const tokens = json?.usage?.input_tokens;
-            ticket.settle(Number.isInteger(tokens) && tokens <= MAX_INPUT_TOKENS ? tokens : null);
-          }
-          await book();
-          if (response.status === 429 || response.status === 529) {
-            const delay = new RateLimitError(response.status, undefined, response.headers).retryAfterMs;
-            await limiter?.pause(Number.isFinite(delay) ? delay : 1000);
-          }
+          try {
+            if (!response.ok) {
+              if (response.status >= 500 || response.status === 408) ticket.settle(null);
+              else ticket.release();
+            } else {
+              let json;
+              try { json = await response.clone().json(); }
+              catch { /* An unreadable response may still have been billed */ }
+              const tokens = json?.usage?.input_tokens;
+              ticket.settle(Number.isInteger(tokens) && tokens <= MAX_INPUT_TOKENS ? tokens : null);
+            }
+            await book();
+            if (response.status === 429 || response.status === 529) {
+              const delay = new RateLimitError(response.status, undefined, response.headers).retryAfterMs;
+              await limiter?.pause(Number.isFinite(delay) ? delay : 1000);
+            }
+          // The pause is recorded before the slot frees, so no waiter starts ahead of it
+          } finally { await slot?.release(); }
         });
         return response;
       }

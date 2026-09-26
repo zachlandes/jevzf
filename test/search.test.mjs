@@ -97,20 +97,21 @@ test("batches run concurrently, and a full ceiling waits for in-flight attempts 
     const request = JSON.parse(init.body);
     return new Response(JSON.stringify({ model: PINNED_MODEL, answers: Object.fromEntries(Object.keys(request.questions).map((id) => [id, { type: "noul", noul: 0.9 }])), usage: { input_tokens: 100 } }));
   };
-  const items = Array.from({ length: 64 }, (_, i) => `line ${i}`);
+  // Eight batches, so the peak is the gate's in-flight setting rather than the batch count
+  const items = Array.from({ length: 128 }, (_, i) => `line ${i}`);
   const open = setup(t, { fetch });
   const wide = await searchByMeaning({ jev: open.jev, query: "search", items });
-  assert.equal(wide.matches.length, 64);
+  assert.equal(wide.matches.length, 128);
   assert.equal(peak, 4);
   peak = 0;
   // Room for two worst-case reservations: the other batches wait their turn rather than stop
   const tight = setup(t, { fetch, spend: { perRunUsd: 2 * usdFor(MAX_INPUT_TOKENS), perDayUsd: 0.2 } });
   const narrow = await searchByMeaning({ jev: tight.jev, query: "search", items });
   assert.equal(narrow.stopped, false);
-  assert.equal(narrow.matches.length, 64);
+  assert.equal(narrow.matches.length, 128);
   assert.equal(peak, 2);
-  assert.equal(narrow.spend, 4 * usdFor(100));
-  assert.equal(await tight.jev.remaining(), 0.2 - 4 * usdFor(100));
+  assert.equal(narrow.spend, 8 * usdFor(100));
+  assert.equal(await tight.jev.remaining(), 0.2 - 8 * usdFor(100));
 });
 
 test("jevzf spends on its own key file ahead of TYPESAFE_API_KEY, then on decision-gate's defaults", async (t) => {
