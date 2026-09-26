@@ -280,6 +280,21 @@ test("meaning mode refuses input over 10 MiB without reading it", async (t) => {
   assert.match(await f.key("meaning"), /input exceeds 10 MiB; narrow the input first/);
 });
 
+test("input that passes 10 MiB after enter ends the search with a failure, not a stuck search", async (t) => {
+  const f = keyFixture(t, { TYPESAFE_API_KEY: "fixture-only" });
+  await f.key("meaning");
+  await f.key("enter", "why uploads fail");
+  truncateSync(inputFile(f.dir), 10 * 1024 * 1024 + 1);
+  const home = path.join(f.dir, "home");
+  // A pipe the worker reads as stdin, held open as fzf holds it, so the search is not superseded
+  const worker = spawn(process.execPath, [fileURLToPath(new URL("../lib/picker/child.mjs", import.meta.url)), "work", String(loadState(f.dir).gen)], { env: { ...utf8, PATH: process.env.PATH, XDG_CONFIG_HOME: home, XDG_STATE_HOME: home, XDG_CACHE_HOME: home, TYPESAFE_API_KEY: "fixture-only", JEVZF_PICKER_DIR: f.dir }, stdio: ["pipe", "ignore", "ignore"] });
+  const code = await new Promise((resolve) => worker.on("close", resolve));
+  assert.equal(code, 0);
+  const state = loadState(f.dir);
+  assert.equal(state.phase, "results");
+  assert.equal(state.summary, "Meaning search failed: input exceeds 10 MiB; narrow the input first");
+});
+
 test("picker: --read0 keeps multiline records whole through a meaning search", { skip: !usableFzf }, async (t) => {
   const s = await standIn(t);
   const env = { TYPESAFE_API_KEY: "fixture-only", JEVZF_JEV_ENDPOINT: s.endpoint };
