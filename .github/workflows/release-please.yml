@@ -12,13 +12,9 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-    # The root package's outputs carry no path prefix; every other package's do
     outputs:
-      releases_created: ${{ steps.release.outputs.releases_created }}
-      jevzf_release_created: ${{ steps.release.outputs.release_created }}
-      jevzf_tag_name: ${{ steps.release.outputs.tag_name }}
-      gate_release_created: ${{ steps.release.outputs['packages/decision-gate--release_created'] }}
-      gate_tag_name: ${{ steps.release.outputs['packages/decision-gate--tag_name'] }}
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         id: release
@@ -28,11 +24,10 @@ jobs:
 
   # Publish here rather than on a tag-push workflow, because releases made
   # with GITHUB_TOKEN do not trigger other workflows. npm's trusted publisher
-  # for each package is bound to this file name, so renaming it breaks
-  # publishing
+  # is bound to this file name, so renaming it breaks publishing
   npm-publish:
     needs: release-please
-    if: needs.release-please.outputs.releases_created == 'true'
+    if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -40,8 +35,7 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          # Both tags of a combined release point at the same release commit
-          ref: ${{ needs.release-please.outputs.gate_tag_name || needs.release-please.outputs.jevzf_tag_name }}
+          ref: ${{ needs.release-please.outputs.tag_name }}
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 24
@@ -58,10 +52,4 @@ jobs:
           ' "$(npm --version)"
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm test
-      # jevzf depends on decision-gate, so decision-gate must be on npm first
-      - name: Publish decision-gate
-        if: needs.release-please.outputs.gate_release_created == 'true'
-        run: npm publish -w packages/decision-gate --provenance --access public
-      - name: Publish jevzf
-        if: needs.release-please.outputs.jevzf_release_created == 'true'
-        run: npm publish --provenance --access public
+      - run: npm publish --provenance --access public

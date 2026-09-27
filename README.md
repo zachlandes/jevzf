@@ -10,11 +10,11 @@ The results come back best first, and typing then narrows them like any fzf list
 ## Try it
 
 Requires Node.js 22 or newer, and fzf 0.66 or newer for the picker.
-jevzf is not on npm yet; to try this checkout, pack it with the `decision-gate` package it is built on and install both:
+jevzf is not on npm yet; to try this checkout, pack it and install the tarball, which pulls in [decision-gate](https://github.com/zachlandes/decision-gate) from npm:
 
 ```sh
-npm pack --workspaces --include-workspace-root
-npm install -g ./decision-gate-0.1.0.tgz ./jevzf-0.1.0.tgz
+npm pack
+npm install -g ./jevzf-0.1.0.tgz
 git log --oneline | jevzf                          # fzf; ctrl-s for meaning, then type and press enter
 export TYPESAFE_API_KEY=...                        # console.typesafe.ai/settings/keys
 git log --oneline | jevzf "when did we change the retry logic"   # the same search as a plain filter
@@ -152,7 +152,7 @@ To change the defaults, create `~/.config/decision-gate/config.json` (or `$XDG_C
 }
 ```
 
-The file belongs to [decision-gate](packages/decision-gate/README.md), so every tool built on it reads the same ceilings and limits; `per_run_usd` is jevzf's per-search ceiling.
+The file belongs to [decision-gate](https://github.com/zachlandes/decision-gate), so every tool built on it reads the same ceilings and limits; `per_run_usd` is jevzf's per-search ceiling.
 `limits` describes your TypeSafe account, `share` is the part of it those tools may use, and `in_flight` is how many requests they may have open at once.
 For one-off runs and CI, `DECISION_GATE_PER_RUN_USD`, `DECISION_GATE_PER_DAY_USD`, `DECISION_GATE_RPM`, `DECISION_GATE_TPS` and `DECISION_GATE_IN_FLIGHT` override the file, and `DECISION_GATE_CONFIG` points at another file.
 Relative paths in the file resolve beside it, and `~/` works.
@@ -171,7 +171,7 @@ Keep the key out of command arguments.
 ## Privacy
 
 Meaning search sends the query and the lines to TypeSafe's HTTPS API.
-With decision-gate's `vercel-ai-gateway` provider selected, they go to Vercel AI Gateway instead; see [Using Jev through Vercel AI Gateway](packages/decision-gate/README.md#using-jev-through-vercel-ai-gateway).
+With decision-gate's `vercel-ai-gateway` provider selected, they go to Vercel AI Gateway instead; see [Using Jev through Vercel AI Gateway](https://github.com/zachlandes/decision-gate#using-jev-through-vercel-ai-gateway).
 Before anything is sent, a built-in filter replaces known secret formats in the query and every line.
 The final check runs on the exact request body of every attempt, retries included, and refuses to send one in which a known secret survives.
 The built-in filter recognises known formats only:
@@ -222,7 +222,7 @@ Either directory can be deleted while no search is running; deleting `spend` als
 
 ## Library
 
-jevzf is built on [decision-gate](packages/decision-gate/README.md), which owns every call to Jev: the key, the secret filter, the ceilings, the rate limiter, the answer cache and the cost ledger.
+jevzf is built on [decision-gate](https://github.com/zachlandes/decision-gate) ([npm](https://www.npmjs.com/package/decision-gate)), which owns every call to Jev: the key, the secret filter, the ceilings, the rate limiter, the answer cache and the cost ledger.
 Meaning search itself stays inside jevzf and has no public import path.
 
 ## Development
@@ -231,11 +231,10 @@ Meaning search itself stays inside jevzf and has no public import path.
 npm ci --ignore-scripts
 npm test
 npm run lint
-npm pack --dry-run --workspaces --include-workspace-root
+npm pack --dry-run
 ```
 
-The repository is an npm workspace: jevzf at the root and decision-gate in `packages/decision-gate`, and `npm test` runs both.
-decision-gate's one runtime dependency is TypeSafe's official SDK, `@typesafe-ai/sdk`, pinned to 0.6.0, which has no dependencies or install scripts of its own.
+jevzf's one runtime dependency is decision-gate, installed from npm; its source, tests and releases live in [its own repository](https://github.com/zachlandes/decision-gate).
 Tests use a loopback stand-in for TypeSafe and never a real key.
 For tests only, `DECISION_GATE_ENDPOINT` may point at an HTTP URL on `127.0.0.1` or `::1`; any other host is refused, and redirects are never followed.
 CI runs on Node.js 22, 24 and 26.
@@ -244,14 +243,12 @@ CI runs on Node.js 22, 24 and 26.
 
 Releases are cut by [release-please](https://github.com/googleapis/release-please) from [Conventional Commits](https://www.conventionalcommits.org/) on `main`.
 Pull request titles become the squash commit, so they must be Conventional Commits too (`feat: …`, `fix: …`).
-The repository releases two packages, each with its own version and changelog: jevzf from the root, with tags `jevzf-v…`, and decision-gate from `packages/decision-gate`, with tags `decision-gate-v…`.
-release-please keeps one standing release pull request that bumps both `package.json` files and writes each `CHANGELOG.md`; never edit a changelog by hand.
-A commit counts for jevzf unless it only touches `packages/`, and for decision-gate when it touches `packages/decision-gate`.
-Both are 0.x, so a breaking change raises the minor version rather than making 1.0.0.
-When decision-gate releases, the workspace plugin raises jevzf's dependency on it and releases jevzf as a patch, so the two never drift apart.
-Merging that pull request tags the releases, and the same workflow publishes them to npm with [trusted publishing](https://docs.npmjs.com/trusted-publishers) and provenance, decision-gate first because jevzf depends on it.
-No npm token is stored anywhere; npm trusts `.github/workflows/release-please.yml` in this repository for each package, so renaming that file breaks publishing.
-npm only accepts a trusted publisher for a package that already exists, so each package's first version is published by hand before its trusted link is added.
+release-please keeps a standing release pull request that bumps `package.json` and writes `CHANGELOG.md`; never edit the changelog by hand.
+Releases are tagged `jevzf-v…`.
+jevzf is 0.x, so a breaking change raises the minor version rather than making 1.0.0.
+Merging that pull request tags the release, and the same workflow publishes it to npm with [trusted publishing](https://docs.npmjs.com/trusted-publishers) and provenance.
+No npm token is stored anywhere; npm trusts `.github/workflows/release-please.yml` in this repository, so renaming that file breaks publishing.
+npm only accepts a trusted publisher for a package that already exists, so jevzf's first version is published by hand before its trusted link is added.
 
 ## See also
 
