@@ -39,7 +39,7 @@ test("per-item cache reuses unchanged items and contains neither original nor qu
 });
 
 test("estimate needs no key; known formats are filtered while hashes and paths pass", (t) => {
-  const f = setup(t, { key: { value: "" } });
+  const f = setup(t, { key: { provider: "typesafe", value: "" } });
   assert.equal(f.jev.status().ok, false);
   const hash = "abcdef1234567890".repeat(4);
   const estimate = estimateSearch({ jev: f.jev, query: "search", items: [hash, "./src/crypto/sha256Hmac/hmacSha256Digest.ts", "public@example.invalid", "Bearer abcdefghijklmnopqrst"] });
@@ -148,11 +148,31 @@ test("jevzf spends on its own key file ahead of TYPESAFE_API_KEY, then on decisi
   assert.throws(() => openJev({ env: base }), /holds only key_file/);
 });
 
+test("jevzf's key file is TypeSafe's, so the gateway provider never receives it", async (t) => {
+  const dir = mkdtempSync(path.join(tmpdir(), "jevzf-gateway-key-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const write = (file, text) => { mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, text, { mode: 0o600 }); };
+  write(path.join(dir, "jevzf/config.json"), JSON.stringify({ key_file: "jevzf-key" }));
+  write(path.join(dir, "jevzf/jevzf-key"), "jevzf-fixture\n");
+  const env = { XDG_CONFIG_HOME: dir, XDG_STATE_HOME: dir, XDG_CACHE_HOME: dir, DECISION_GATE_PROVIDER: "vercel-ai-gateway", TYPESAFE_API_KEY: "typesafe-fixture" };
+  const missing = openJev({ env }).status();
+  assert.deepEqual([missing.missing, missing.label, missing.keyEnv], [true, "Vercel AI Gateway", "AI_GATEWAY_API_KEY"]);
+  const sent = [];
+  const jev = openJev({ env: { ...env, AI_GATEWAY_API_KEY: "gateway-fixture" }, maxRetries: 0, fetch: async (url, init) => {
+    sent.push([url, init.headers.Authorization ?? init.headers.authorization]);
+    const request = JSON.parse(init.body);
+    return new Response(JSON.stringify({ model: "typesafe-ai/jev", answers: Object.fromEntries(Object.keys(request.questions).map((id) => [id, { type: "noul", noul: 0.9 }])), usage: { input_tokens: 100 } }));
+  } });
+  await searchByMeaning({ jev, query: "search", items: ["alpha"], noCache: true });
+  assert.deepEqual(sent, [["https://ai-gateway.vercel.sh/typesafe/v1/systemone", "Bearer gateway-fixture"]]);
+});
+
 test("searches queued behind the account's in-flight slot wait without spending their attempt timeout", async (t) => {
   const dir = mkdtempSync(path.join(tmpdir(), "jevzf-search-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   // Each answer takes longer than half the attempt timeout, so a request queued behind two others
-  // would time out if its wait for the slot counted against its attempt
+  // would time out if its wait for the slot counted against its attempt; the 400 ms left over keeps
+  // a loaded machine running the whole suite from timing out an answer that was never queued
   let open = 0, peak = 0, served = 0;
   const server = createServer(async (req, res) => {
     open++; peak = Math.max(peak, open);

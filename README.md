@@ -165,11 +165,13 @@ To give jevzf a key of its own, so its spend is ledgered and capped apart from o
 
 That file holds only `key_file`; every other setting stays in decision-gate's config.
 The key comes from jevzf's `key_file` first, so a `TYPESAFE_API_KEY` exported for other tools is never spent by jevzf, then `TYPESAFE_API_KEY`, then decision-gate's `key_file`; key files must be mode 600, and no other location is read.
+jevzf's `key_file` holds a TypeSafe key, so with decision-gate's experimental `vercel-ai-gateway` provider selected it is never sent, and jevzf asks for `AI_GATEWAY_API_KEY` instead.
 Keep the key out of command arguments.
 
 ## Privacy
 
 Meaning search sends the query and the lines to TypeSafe's HTTPS API.
+With decision-gate's `vercel-ai-gateway` provider selected, they go to Vercel AI Gateway instead; see [Using Jev through Vercel AI Gateway](packages/decision-gate/README.md#using-jev-through-vercel-ai-gateway).
 Before anything is sent, a built-in filter replaces known secret formats in the query and every line.
 The final check runs on the exact request body of every attempt, retries included, and refuses to send one in which a known secret survives.
 The built-in filter recognises known formats only:
@@ -214,7 +216,7 @@ For private values no pattern can know, such as names, customer ids or internal 
 Patterns are JavaScript regular expressions that also accept a leading `(?i)`, `(?m)` or `(?s)` and `\1` or `\g<name>` replacements; backslashes need escaping in JSON.
 No filter can promise to find every private detail, so choose what you pipe in.
 
-The answer cache in `~/.cache/decision-gate/answers` stores keyed hashes of lines and their probabilities for 30 days, never the query or the text, and stays under 50 MiB.
+The answer cache in `~/.cache/decision-gate/answers` stores keyed hashes of lines and their probabilities for 30 days, or a day through the unpinned `vercel-ai-gateway` provider, never the query or the text, and stays under 50 MiB.
 Spend and rate records in `~/.local/state/decision-gate` hold times, amounts and a fingerprint of the key, never the key or any text.
 Either directory can be deleted while no search is running; deleting `spend` also forgets today's spending.
 
