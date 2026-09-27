@@ -17,12 +17,9 @@
   "exports": {
     "./package.json": "./package.json"
   },
-  "workspaces": [
-    "packages/*"
-  ],
   "scripts": {
     "test": "node --test",
-    "lint": "node --check bin/jevzf.mjs && find lib test scripts packages/decision-gate/lib packages/decision-gate/test -name '*.mjs' -exec node --check {} \\;"
+    "lint": "for f in bin/jevzf.mjs $(find lib test scripts -name '*.mjs'); do node --check \"$f\" || exit 1; done"
   },
   "license": "Apache-2.0",
   "repository": {

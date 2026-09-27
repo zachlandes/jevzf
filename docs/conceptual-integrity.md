@@ -13,7 +13,7 @@ The mode is called "meaning" rather than "jev" so that another provider can stan
 The filter, `cmd | jevzf QUERY`, is the same search without fzf, and the picker's meaning mode runs through the same core call, so the two cannot drift apart.
 The binding recipe serves people whose fzf already has a source it can run again, and needs no picker.
 
-`decision-gate`, the second package in this repository, is the one owner of calling Jev, for this command and for the other tools that adopt it.
+[decision-gate](https://github.com/zachlandes/decision-gate), a separate package jevzf depends on, is the one owner of calling Jev, for this command and for the other tools that adopt it.
 It holds the key handling, the never-send check, the spend ceilings, the rate limiter, the answer cache and the cost ledger, because each of those is only a guarantee if no caller can go around it.
 A tool that kept its own copy would split the daily ceiling and the rate window into parts that cannot see each other.
 It is a separate package rather than a layer of jevzf because tools unrelated to fzf should not install an fzf tool to spend a key.
